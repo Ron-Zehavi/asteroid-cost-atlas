@@ -1,0 +1,19 @@
+base_url: https://ssd-api.jpl.nasa.gov/sbdb_query.api
+
+sbdb_fields:
+  - spkid
+  - full_name
+  - a
+  - e
+  - i
+  - diameter
+  - rot_per
+  - albedo
+
+page_size: 20000
+
+paths:
+  raw_json: data/raw/sbdb.json
+  csv_dir: data/raw
+  cache_dir: data/raw/cache
+  metadata_dir: data/raw/metadata
