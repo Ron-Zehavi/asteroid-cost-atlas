@@ -28,14 +28,17 @@ score-orbital: ## Apply orbital scoring → data/processed/sbdb_orbital_*.parque
 score-physical: ## Apply physical feasibility scoring → data/processed/sbdb_physical_*.parquet
 	python -m asteroid_cost_atlas.scoring.physical
 
-query: ## Run a sample query against the latest orbital atlas
+query: ## Run a sample query against the latest atlas
 	python3 -c "\
 from pathlib import Path; \
 from asteroid_cost_atlas.utils.query import CostAtlasDB; \
-db = CostAtlasDB.from_processed_dir(Path('data/processed')); \
+p = sorted(Path('data/processed').glob('sbdb_physical_*.parquet')) \
+ or sorted(Path('data/processed').glob('sbdb_orbital_*.parquet')); \
+db = CostAtlasDB(p[-1]); \
 print('=== Stats ==='); print(db.stats().to_string(index=False)); \
 print('\n=== Top 10 most accessible ==='); \
-print(db.top_accessible(n=10)[['name','delta_v_km_s','tisserand_jupiter','inclination_deg']].to_string(index=False))"
+print(db.top_accessible(n=10)[['name','delta_v_km_s','tisserand_jupiter','diameter_estimated_km','surface_gravity_m_s2','neo']].to_string(index=False)); \
+db.close()"
 
 lint: ## Lint with ruff
 	ruff check src tests
