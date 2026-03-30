@@ -8,16 +8,35 @@ version = "0.1.0"
 description = "Scored catalog of asteroid mining and visit candidates from NASA SBDB"
 authors = [{ name = "Ron Zehavi" }]
 license = { text = "MIT" }
+readme = "README.md"
 requires-python = ">=3.11"
+keywords = ["asteroid", "orbital-mechanics", "space-resources", "data-engineering"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+[project.urls]
+Repository = "https://github.com/ronzehavi/asteroid-cost-atlas"
+Issues = "https://github.com/ronzehavi/asteroid-cost-atlas/issues"
 dependencies = [
-    "pydantic>=2.0",
-    "pyyaml>=6.0",
-    "requests>=2.31",
-    "pandas>=2.0",
+    "pydantic>=2.0,<3.0",
+    "pyyaml>=6.0,<7.0",
+    "requests>=2.31,<3.0",
+    "pandas>=2.0,<3.0",
+    "pyarrow>=15.0,<20.0",
+    "duckdb>=1.0,<2.0",
 ]
 
 [project.scripts]
 asteroid-ingest = "asteroid_cost_atlas.ingest.ingest_sbdb:main"
+asteroid-clean = "asteroid_cost_atlas.ingest.clean_sbdb:main"
+asteroid-score-orbital = "asteroid_cost_atlas.scoring.orbital:main"
 
 [project.optional-dependencies]
 dev = [
@@ -46,7 +65,7 @@ strict = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "--cov=src --cov-report=term-missing -q"
+addopts = "--cov=src --cov-report=term-missing -q --cov-fail-under=85"
 
 [tool.coverage.run]
 source = ["src"]

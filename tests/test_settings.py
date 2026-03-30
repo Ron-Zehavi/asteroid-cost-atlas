@@ -46,3 +46,31 @@ def test_resolved_config_paths_are_absolute(config_path: Path, env_path: Path) -
     assert config.csv_dir.is_absolute()
     assert config.cache_dir.is_absolute()
     assert config.metadata_dir.is_absolute()
+
+
+def test_load_resolved_config_missing_file(env_path: Path) -> None:
+    with pytest.raises(FileNotFoundError, match="Config file not found"):
+        load_resolved_config(Path("nonexistent.yaml"), env_path)
+
+
+def test_load_resolved_config_malformed_yaml(tmp_path: Path, env_path: Path) -> None:
+    bad_yaml = tmp_path / "config.yaml"
+    bad_yaml.write_text("key: [unclosed bracket\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Invalid YAML"):
+        load_resolved_config(bad_yaml, env_path)
+
+
+def test_load_resolved_config_invalid_page_size(config_path: Path, tmp_path: Path) -> None:
+    env = tmp_path / ".env"
+    env.write_text("SBDB_PAGE_SIZE=abc\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="SBDB_PAGE_SIZE must be an integer"):
+        load_resolved_config(config_path, env)
+
+
+def test_load_resolved_config_page_size_float_rejected(
+    config_path: Path, tmp_path: Path
+) -> None:
+    env = tmp_path / ".env"
+    env.write_text("SBDB_PAGE_SIZE=1000.5\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="SBDB_PAGE_SIZE must be an integer"):
+        load_resolved_config(config_path, env)

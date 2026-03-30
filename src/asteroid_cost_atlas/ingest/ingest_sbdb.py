@@ -11,6 +11,7 @@ from typing import Any
 
 import pandas as pd
 import requests
+from requests.adapters import HTTPAdapter, Retry
 
 from asteroid_cost_atlas.settings import ResolvedConfig, load_resolved_config
 
@@ -31,11 +32,6 @@ class JsonFormatter(logging.Formatter):
 
 
 logger = logging.getLogger(__name__)
-handler = logging.StreamHandler()
-handler.setFormatter(JsonFormatter())
-logger.addHandler(handler)
-logger.setLevel(logging.INFO)
-logger.propagate = False
 
 
 COLUMN_RENAME_MAP = {
@@ -58,7 +54,7 @@ NUMERIC_COLUMNS = [
 ]
 
 
-def parse_args(default_page_size: int, default_output_dir: Path):
+def parse_args(default_page_size: int, default_output_dir: Path) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--page-size", type=int, default=default_page_size)
     parser.add_argument("--output", type=Path, default=default_output_dir)
@@ -96,21 +92,18 @@ def fetch_page(
     )
 
     if cache_path.exists():
-        return json.loads(cache_path.read_text(encoding="utf-8"))
+        return dict(json.loads(cache_path.read_text(encoding="utf-8")))
 
-    response = session.get(
-        base_url,
-        params={
-            "fields": ",".join(sbdb_fields),
-            "limit": page_size,
-            "limit-from": offset,
-        },
-        timeout=30,
-    )
+    params: dict[str, str | int] = {
+        "fields": ",".join(sbdb_fields),
+        "limit": page_size,
+        "limit-from": offset,
+    }
+    response = session.get(base_url, params=params, timeout=30)
 
     response.raise_for_status()
 
-    payload = response.json()
+    payload: dict[str, Any] = dict(response.json())
 
     cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -141,7 +134,10 @@ def fetch_all_pages(
         )
 
         if payload.get("fields") != sbdb_fields:
-            raise ValueError("Returned fields differ from requested fields.")
+            raise ValueError(
+                f"Returned fields {payload.get('fields')!r} "
+                f"differ from requested {sbdb_fields!r}."
+            )
 
         rows = payload.get("data", [])
 
@@ -189,7 +185,12 @@ def to_dataframe(payload: dict[str, Any]) -> pd.DataFrame:
         errors="coerce",
     )
 
-    return df.dropna(subset=["a_au", "eccentricity", "inclination_deg"])
+    rows_before = len(df)
+    df = df.dropna(subset=["a_au", "eccentricity", "inclination_deg"])
+    dropped = rows_before - len(df)
+    if dropped:
+        logger.warning("Dropped %d rows with missing orbital elements at ingest", dropped)
+    return df
 
 
 def write_metadata(
@@ -215,9 +216,16 @@ def write_metadata(
 
 
 def main() -> int:
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(JsonFormatter())
+    logger.addHandler(_handler)
+    logger.setLevel(logging.INFO)
+    logger.propagate = False
+
     started = time.perf_counter()
 
-    _repo_root = Path(__file__).resolve().parents[3]
+    _module = Path(__file__).resolve()
+    _repo_root = next(p for p in [_module, *_module.parents] if (p / "pyproject.toml").exists())
 
     config: ResolvedConfig = load_resolved_config(
         _repo_root / "configs" / "config.yaml",
@@ -234,7 +242,12 @@ def main() -> int:
         / f"sbdb_{today}.metadata.json"
     )
 
+    _adapter = HTTPAdapter(
+        max_retries=Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 503])
+    )
     with requests.Session() as session:
+        session.mount("https://", _adapter)
+        session.mount("http://", _adapter)
         payload = fetch_all_pages(
             session,
             config.base_url,
