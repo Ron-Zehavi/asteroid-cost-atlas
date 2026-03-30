@@ -36,7 +36,10 @@ dependencies = [
 [project.scripts]
 asteroid-ingest = "asteroid_cost_atlas.ingest.ingest_sbdb:main"
 asteroid-clean = "asteroid_cost_atlas.ingest.clean_sbdb:main"
+asteroid-enrich = "asteroid_cost_atlas.ingest.enrich:main"
+asteroid-ingest-lcdb = "asteroid_cost_atlas.ingest.ingest_lcdb:main"
 asteroid-score-orbital = "asteroid_cost_atlas.scoring.orbital:main"
+asteroid-score-physical = "asteroid_cost_atlas.scoring.physical:main"
 
 [project.optional-dependencies]
 dev = [

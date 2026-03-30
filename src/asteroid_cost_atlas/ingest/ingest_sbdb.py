@@ -39,8 +39,13 @@ COLUMN_RENAME_MAP = {
     "a": "a_au",
     "e": "eccentricity",
     "i": "inclination_deg",
+    "H": "abs_magnitude",
+    "G": "magnitude_slope",
     "diameter": "diameter_km",
     "rot_per": "rotation_hours",
+    "moid": "moid_au",
+    "class": "orbit_class",
+    "spec_B": "spectral_type",
 }
 
 
@@ -48,9 +53,12 @@ NUMERIC_COLUMNS = [
     "a_au",
     "eccentricity",
     "inclination_deg",
+    "abs_magnitude",
+    "magnitude_slope",
     "diameter_km",
     "rotation_hours",
     "albedo",
+    "moid_au",
 ]
 
 

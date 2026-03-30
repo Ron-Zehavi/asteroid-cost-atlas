@@ -125,8 +125,14 @@ def test_fetch_all_pages_field_mismatch_raises(
 # ---------------------------------------------------------------------------
 
 
-_FULL_FIELDS = ["spkid", "full_name", "a", "e", "i", "diameter", "rot_per", "albedo"]
-_FULL_ROW = ["1", "Ceres", "2.77", "0.079", "10.6", "939.4", "9.07", "0.09"]
+_FULL_FIELDS = [
+    "spkid", "full_name", "a", "e", "i", "H", "G",
+    "diameter", "rot_per", "albedo", "neo", "pha", "class", "moid", "spec_B",
+]
+_FULL_ROW = [
+    "1", "Ceres", "2.77", "0.079", "10.6", "3.53", "0.12",
+    "939.4", "9.07", "0.09", "N", "N", "MBA", "1.59", "C",
+]
 
 
 def test_to_dataframe_renames_columns() -> None:
@@ -136,6 +142,8 @@ def test_to_dataframe_renames_columns() -> None:
     assert "eccentricity" in df.columns
     assert "inclination_deg" in df.columns
     assert "name" in df.columns
+    assert "abs_magnitude" in df.columns
+    assert "moid_au" in df.columns
 
 
 def test_to_dataframe_numeric_coercion() -> None:
@@ -146,7 +154,10 @@ def test_to_dataframe_numeric_coercion() -> None:
 
 
 def test_to_dataframe_drops_missing_orbital() -> None:
-    bad_row = ["2", "Bad", None, "0.1", "5.0", None, None, None]
+    bad_row = [
+        "2", "Bad", None, "0.1", "5.0", None, None,
+        None, None, None, "N", "N", "MBA", None, None,
+    ]
     payload = {"fields": _FULL_FIELDS, "data": [_FULL_ROW, bad_row]}
     df = to_dataframe(payload)
     assert len(df) == 1
@@ -184,10 +195,16 @@ def test_write_metadata_creates_parent_dirs(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-_FIELDS = ["spkid", "full_name", "a", "e", "i", "diameter", "rot_per", "albedo"]
+_FIELDS = [
+    "spkid", "full_name", "a", "e", "i", "H", "G",
+    "diameter", "rot_per", "albedo", "neo", "pha", "class", "moid", "spec_B",
+]
 _PAYLOAD = {
     "fields": _FIELDS,
-    "data": [["20000001", "Ceres", "2.77", "0.079", "10.6", "939.4", "9.07", "0.09"]],
+    "data": [[
+        "20000001", "Ceres", "2.77", "0.079", "10.6", "3.53", "0.12",
+        "939.4", "9.07", "0.09", "N", "N", "MBA", "1.59", "C",
+    ]],
 }
 
 

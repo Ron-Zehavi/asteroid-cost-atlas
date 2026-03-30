@@ -1,4 +1,4 @@
-.PHONY: install pipeline ingest clean-data score-orbital query lint format typecheck test clean clean-outputs data-info help
+.PHONY: install pipeline ingest ingest-lcdb clean-data enrich score-orbital score-physical query lint format typecheck test clean clean-outputs data-info help
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -7,17 +7,26 @@ install: ## Install package and dev dependencies
 	pip install -e ".[dev]"
 
 # Pipeline stages must run in this order:
-#   ingest → clean-data → score-orbital
-pipeline: ingest clean-data score-orbital ## Run full pipeline end-to-end
+#   ingest → ingest-lcdb → clean-data → enrich → score-orbital → score-physical
+pipeline: ingest ingest-lcdb clean-data enrich score-orbital score-physical ## Run full pipeline end-to-end
 
 ingest: ## Fetch raw SBDB catalog → data/raw/sbdb_*.csv
 	python -m asteroid_cost_atlas.ingest.ingest_sbdb
 
+ingest-lcdb: ## Fetch LCDB rotation periods → data/raw/lcdb_*.parquet
+	python -m asteroid_cost_atlas.ingest.ingest_lcdb
+
 clean-data: ## Validate and filter raw CSV → data/processed/sbdb_clean_*.parquet
 	python -m asteroid_cost_atlas.ingest.clean_sbdb
 
+enrich: ## Estimate missing diameters from H magnitude → data/processed/sbdb_enriched_*.parquet
+	python -m asteroid_cost_atlas.ingest.enrich
+
 score-orbital: ## Apply orbital scoring → data/processed/sbdb_orbital_*.parquet
 	python -m asteroid_cost_atlas.scoring.orbital
+
+score-physical: ## Apply physical feasibility scoring → data/processed/sbdb_physical_*.parquet
+	python -m asteroid_cost_atlas.scoring.physical
 
 query: ## Run a sample query against the latest orbital atlas
 	python3 -c "\

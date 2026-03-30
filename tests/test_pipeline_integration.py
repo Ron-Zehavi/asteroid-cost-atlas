@@ -1,9 +1,9 @@
 """
 End-to-end pipeline integration test.
 
-Runs clean() → add_orbital_features() → CostAtlasDB on a synthetic
-10-row DataFrame to verify the stages compose correctly without any
-stage-coupling bugs that unit tests could miss.
+Runs clean() → add_orbital_features() → add_physical_features() → CostAtlasDB
+on a synthetic 10-row DataFrame to verify the stages compose correctly
+without any stage-coupling bugs that unit tests could miss.
 """
 
 from __future__ import annotations
@@ -15,6 +15,7 @@ import pytest
 
 from asteroid_cost_atlas.ingest.clean_sbdb import clean
 from asteroid_cost_atlas.scoring.orbital import add_orbital_features
+from asteroid_cost_atlas.scoring.physical import add_physical_features
 from asteroid_cost_atlas.utils.query import CostAtlasDB
 
 
@@ -33,6 +34,10 @@ def raw_df() -> pd.DataFrame:
                               0.5, 0.1, 1.2],  # last: e_ge_one → removed
             "inclination_deg": [10.6, 5.0, 13.0, 7.1, 5.4, 12.0, 3.0,
                                  20.0, 15.0, 8.0],
+            "diameter_km": [939.4, 0.5, 246.6, None, 119.1, 1.2, None,
+                             50.0, 10.0, 0.3],
+            "rotation_hours": [9.07, 1.0, 7.21, 5.34, None, 3.0, None,
+                                8.0, 6.0, 24.0],
         }
     )
 
@@ -51,6 +56,29 @@ class TestPipelineIntegration:
         assert scored["delta_v_km_s"].notna().all()
         assert scored["tisserand_jupiter"].notna().all()
         assert scored["inclination_penalty"].notna().all()
+
+    def test_physical_scoring_after_orbital(self, raw_df: pd.DataFrame) -> None:
+        cleaned, _ = clean(raw_df)
+        orbital = add_orbital_features(cleaned)
+        physical = add_physical_features(orbital)
+        assert "surface_gravity_m_s2" in physical.columns
+        assert "rotation_feasibility" in physical.columns
+        assert "regolith_likelihood" in physical.columns
+
+    def test_physical_scores_independent(self, raw_df: pd.DataFrame) -> None:
+        cleaned, _ = clean(raw_df)
+        orbital = add_orbital_features(cleaned)
+        physical = add_physical_features(orbital)
+        # Gravity scored wherever diameter is available
+        has_diam = physical["diameter_km"].notna()
+        assert physical.loc[has_diam, "surface_gravity_m_s2"].notna().all()
+        assert physical.loc[~has_diam, "surface_gravity_m_s2"].isna().all()
+        # Rotation scored wherever rotation_hours is available
+        has_rot = physical["rotation_hours"].notna()
+        assert physical.loc[has_rot, "rotation_feasibility"].notna().all()
+        # Regolith only where both exist
+        has_both = has_diam & has_rot
+        assert physical.loc[has_both, "regolith_likelihood"].notna().all()
 
     def test_duckdb_query_sees_correct_row_count(
         self, raw_df: pd.DataFrame, tmp_path: Path
@@ -92,6 +120,7 @@ class TestPipelineIntegration:
         original_len = len(raw_df)
         original_cols = set(raw_df.columns)
         cleaned, _ = clean(raw_df)
-        _ = add_orbital_features(cleaned)
+        orbital = add_orbital_features(cleaned)
+        _ = add_physical_features(orbital)
         assert len(raw_df) == original_len
         assert set(raw_df.columns) == original_cols

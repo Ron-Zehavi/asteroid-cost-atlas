@@ -180,11 +180,15 @@ logger = logging.getLogger(__name__)
 
 
 def _latest_clean_parquet(processed_dir: Path) -> Path:
-    candidates = sorted(processed_dir.glob("sbdb_clean_*.parquet"))
-    if not candidates:
-        raise FileNotFoundError(
-            f"No sbdb_clean_*.parquet found in {processed_dir}. Run 'make clean-data' first."
-        )
+    # Prefer enriched file; fall back to clean
+    for pattern in ("sbdb_enriched_*.parquet", "sbdb_clean_*.parquet"):
+        candidates = sorted(processed_dir.glob(pattern))
+        if candidates:
+            return candidates[-1]
+    raise FileNotFoundError(
+        f"No sbdb_enriched_*.parquet or sbdb_clean_*.parquet found in {processed_dir}. "
+        "Run 'make enrich' or 'make clean-data' first."
+    )
     return candidates[-1]
 
 

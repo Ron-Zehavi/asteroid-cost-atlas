@@ -6,9 +6,16 @@ sbdb_fields:
   - a
   - e
   - i
+  - H            # absolute magnitude — proxy for diameter
+  - G            # magnitude slope parameter (default 0.15)
   - diameter
   - rot_per
   - albedo
+  - neo          # near-Earth object flag (Y/N)
+  - pha          # potentially hazardous asteroid flag (Y/N)
+  - class        # orbit classification (APO, ATE, AMO, etc.)
+  - moid         # Earth minimum orbit intersection distance (AU)
+  - spec_B       # SMASSII spectral taxonomy (sparse)
 
 page_size: 20000
 
