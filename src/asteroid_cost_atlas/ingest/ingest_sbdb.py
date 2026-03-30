@@ -251,7 +251,7 @@ def main() -> int:
     )
 
     _adapter = HTTPAdapter(
-        max_retries=Retry(total=3, backoff_factor=1, status_forcelist=[429, 500, 503])
+        max_retries=Retry(total=3, backoff_factor=2, status_forcelist=[429, 500, 503])
     )
     with requests.Session() as session:
         session.mount("https://", _adapter)

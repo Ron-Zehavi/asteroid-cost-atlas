@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Generator
 from pathlib import Path
 
 import pandas as pd
@@ -36,8 +37,10 @@ def sample_parquet(tmp_path: Path) -> Path:
 
 
 @pytest.fixture()
-def db(sample_parquet: Path) -> CostAtlasDB:
-    return CostAtlasDB(sample_parquet)
+def db(sample_parquet: Path) -> Generator[CostAtlasDB, None, None]:
+    database = CostAtlasDB(sample_parquet)
+    yield database
+    database.close()
 
 
 # ---------------------------------------------------------------------------
@@ -224,3 +227,58 @@ class TestDeltaVHistogram:
     def test_custom_bin_width(self, db: CostAtlasDB) -> None:
         result = db.delta_v_histogram(bin_width=5.0)
         assert all(b % 5.0 == pytest.approx(0.0, abs=1e-6) for b in result["bin_floor_km_s"])
+
+
+# ---------------------------------------------------------------------------
+# Input validation
+# ---------------------------------------------------------------------------
+
+
+class TestInputValidation:
+    def test_top_accessible_n_zero_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="positive integer"):
+            db.top_accessible(n=0)
+
+    def test_top_accessible_n_negative_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="positive integer"):
+            db.top_accessible(n=-1)
+
+    def test_top_accessible_nan_delta_v_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="finite and positive"):
+            db.top_accessible(max_delta_v=float("nan"))
+
+    def test_top_accessible_inf_inclination_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="finite and positive"):
+            db.top_accessible(max_inclination=float("inf"))
+
+    def test_nea_candidates_n_zero_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="positive integer"):
+            db.nea_candidates(n=0)
+
+    def test_nea_candidates_nan_delta_v_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="finite and positive"):
+            db.nea_candidates(max_delta_v=float("nan"))
+
+    def test_histogram_zero_bin_width_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="finite and positive"):
+            db.delta_v_histogram(bin_width=0.0)
+
+    def test_histogram_inf_bin_width_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="finite and positive"):
+            db.delta_v_histogram(bin_width=float("inf"))
+
+    def test_histogram_nan_bin_width_raises(self, db: CostAtlasDB) -> None:
+        with pytest.raises(ValueError, match="finite and positive"):
+            db.delta_v_histogram(bin_width=float("nan"))
+
+
+# ---------------------------------------------------------------------------
+# Context manager
+# ---------------------------------------------------------------------------
+
+
+class TestContextManager:
+    def test_with_statement(self, sample_parquet: Path) -> None:
+        with CostAtlasDB(sample_parquet) as db:
+            result = db.sql("SELECT COUNT(*) AS n FROM atlas")
+            assert result["n"].iloc[0] == 5
