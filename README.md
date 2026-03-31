@@ -334,6 +334,8 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 
 ## Roadmap
 
+### Phase 1 — Data Pipeline (current)
+
 - [x] Ingestion — paginated SBDB fetch (15 fields), caching, metadata logging
 - [x] Config system — typed YAML + `.env` loader with Pydantic
 - [x] Data cleaning stage — rule-based filter with per-rule removal logging
@@ -348,9 +350,40 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 - [ ] Composition proxy module — C/S/M-type classification from albedo + taxonomy
 - [ ] Economic scoring engine — resource density x accessibility composite
 - [ ] Atlas assembly — merge all feature groups into unified ranked dataset
-- [ ] Visualization layer — accessibility scatter plots, ranking dashboards
 - [ ] JPL Horizons integration — higher-fidelity orbital elements
 - [ ] Spectral catalog joins — SDSS/MOVIS taxonomy for improved composition signals
+
+### Phase 2 — Interactive Mission Visualization Platform
+
+The transition from static dataset to decision-support interface. A browser-based tool that lets users explore the atlas visually and plan missions interactively.
+
+**Solar system scene**
+- [ ] 3D browser-based scene — Sun, planets (Mercury–Neptune), and asteroid belt rendered in real scale
+- [ ] Asteroid positions computed from Keplerian elements (a, e, i, longitude of ascending node, argument of perihelion)
+- [ ] Color-coded by atlas score (delta-v, economic priority, composition type)
+- [ ] Filterable overlays — NEOs only, T_J range, diameter range, orbit class
+
+**Timeline and orbital motion**
+- [ ] Scrollable time slider — animate orbital positions across months/years
+- [ ] Epoch-aware positions — propagate mean anomaly forward from SBDB epoch
+- [ ] Playback controls — play, pause, speed adjustment, jump to date
+
+**Asteroid selection and detail panel**
+- [ ] Click/search any asteroid to open a detail panel with all atlas columns
+- [ ] Orbit visualization — highlight the selected asteroid's full elliptical orbit
+- [ ] Comparison mode — pin multiple asteroids to compare accessibility metrics side-by-side
+
+**Launch window analysis**
+- [ ] For a selected asteroid, compute approximate launch windows from Earth over a date range
+- [ ] Per-window trajectory visualization — show the transfer orbit (Earth → asteroid) in the 3D scene
+- [ ] Delta-v breakdown per window — departure burn, arrival burn, inclination correction
+- [ ] Porkchop plot — departure date vs arrival date contour map of total delta-v
+
+**Mission layer architecture**
+- [ ] REST API serving atlas data from DuckDB (`CostAtlasDB` as backend)
+- [ ] WebSocket or polling for timeline state synchronisation
+- [ ] Modular frontend — scene renderer (Three.js / Cesium), UI panels (React), trajectory solver (WASM or server-side)
+- [ ] Plugin architecture for future mission types (sample return, flyby, rendezvous, mining)
 
 ---
 
@@ -365,7 +398,7 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 
 ## Long-term Vision
 
-Become a reproducible, openly maintained reference dataset for asteroid economic accessibility — updated on a regular cadence as NASA catalogs are refreshed, and extensible as new data sources (NEOWISE, Gaia DR3, spectral surveys) become available. The goal is a living atlas: every asteroid, ranked, with traceable methodology.
+Become a reproducible, openly maintained reference dataset **and interactive mission-planning tool** for asteroid economic accessibility. Phase 1 builds the data foundation — a scored, enriched catalog updated on a regular cadence as NASA catalogs are refreshed, extensible with new sources (NEOWISE, Gaia DR3, spectral surveys). Phase 2 puts that data into the hands of mission planners through a browser-based visualization platform where users can explore the solar system, select targets, and evaluate launch windows — turning a static dataset into a living decision-support interface.
 
 ---
 
