@@ -125,6 +125,35 @@ class TestAddEconomicScore:
         with pytest.raises(ValueError, match="missing required columns"):
             add_economic_score(df)
 
+    def test_tied_scores_get_unique_ranks(self) -> None:
+        df = pd.DataFrame(
+            {
+                "name": ["Alpha", "Beta"],
+                "diameter_estimated_km": [10.0, 10.0],
+                "delta_v_km_s": [5.0, 5.0],
+                "composition_class": ["C", "C"],
+                "resource_value_usd_per_kg": [500.0, 500.0],
+            }
+        )
+        result = add_economic_score(df)
+        ranks = result["economic_priority_rank"].dropna().tolist()
+        assert sorted(ranks) == [1, 2]  # consecutive, no gaps
+
+    def test_tied_scores_broken_by_name(self) -> None:
+        df = pd.DataFrame(
+            {
+                "name": ["Bravo", "Alpha"],
+                "diameter_estimated_km": [10.0, 10.0],
+                "delta_v_km_s": [5.0, 5.0],
+                "composition_class": ["C", "C"],
+                "resource_value_usd_per_kg": [500.0, 500.0],
+            }
+        )
+        result = add_economic_score(df)
+        # Alpha sorts before Bravo → Alpha gets rank 1
+        assert result.loc[1, "economic_priority_rank"] == 1  # Alpha
+        assert result.loc[0, "economic_priority_rank"] == 2  # Bravo
+
     def test_all_ranks_unique_for_different_scores(self) -> None:
         result = add_economic_score(self._sample_df())
         ranked = result["economic_priority_rank"].dropna()

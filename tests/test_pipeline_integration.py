@@ -1,7 +1,7 @@
 """
 End-to-end pipeline integration test.
 
-Runs clean() → add_orbital_features() → add_physical_features() → CostAtlasDB
+Runs the full chain: clean → orbital → physical → composition → economic → DuckDB
 on a synthetic 10-row DataFrame to verify the stages compose correctly
 without any stage-coupling bugs that unit tests could miss.
 """
@@ -14,6 +14,9 @@ import pandas as pd
 import pytest
 
 from asteroid_cost_atlas.ingest.clean_sbdb import clean
+from asteroid_cost_atlas.ingest.enrich import add_diameter_estimate
+from asteroid_cost_atlas.scoring.composition import add_composition_features
+from asteroid_cost_atlas.scoring.economic import add_economic_score
 from asteroid_cost_atlas.scoring.orbital import add_orbital_features
 from asteroid_cost_atlas.scoring.physical import add_physical_features
 from asteroid_cost_atlas.utils.query import CostAtlasDB
@@ -38,6 +41,10 @@ def raw_df() -> pd.DataFrame:
                              50.0, 10.0, 0.3],
             "rotation_hours": [9.07, 1.0, 7.21, 5.34, None, 3.0, None,
                                 8.0, 6.0, 24.0],
+            "abs_magnitude": [3.5, 22.0, 5.2, 3.2, 7.0, 20.0, 18.0,
+                               15.0, 10.0, 25.0],
+            "albedo": [0.09, None, 0.21, 0.42, 0.27, None, None,
+                        0.05, 0.15, None],
         }
     )
 
@@ -120,7 +127,55 @@ class TestPipelineIntegration:
         original_len = len(raw_df)
         original_cols = set(raw_df.columns)
         cleaned, _ = clean(raw_df)
-        orbital = add_orbital_features(cleaned)
-        _ = add_physical_features(orbital)
+        enriched = add_diameter_estimate(cleaned)
+        orbital = add_orbital_features(enriched)
+        physical = add_physical_features(orbital)
+        composition = add_composition_features(physical)
+        _ = add_economic_score(composition)
         assert len(raw_df) == original_len
         assert set(raw_df.columns) == original_cols
+
+    def test_composition_after_physical(self, raw_df: pd.DataFrame) -> None:
+        cleaned, _ = clean(raw_df)
+        enriched = add_diameter_estimate(cleaned)
+        orbital = add_orbital_features(enriched)
+        physical = add_physical_features(orbital)
+        composition = add_composition_features(physical)
+        assert "composition_class" in composition.columns
+        assert "resource_value_usd_per_kg" in composition.columns
+        assert composition["composition_class"].notna().all()
+
+    def test_economic_scoring_produces_ranking(self, raw_df: pd.DataFrame) -> None:
+        cleaned, _ = clean(raw_df)
+        enriched = add_diameter_estimate(cleaned)
+        orbital = add_orbital_features(enriched)
+        physical = add_physical_features(orbital)
+        composition = add_composition_features(physical)
+        atlas = add_economic_score(composition)
+        assert "economic_priority_rank" in atlas.columns
+        scored = atlas["economic_priority_rank"].notna()
+        assert scored.sum() > 0
+        # Ranks should be consecutive integers starting at 1
+        ranks = atlas.loc[scored, "economic_priority_rank"].sort_values()
+        assert ranks.iloc[0] == 1
+        assert ranks.iloc[-1] == len(ranks)
+
+    def test_full_pipeline_to_duckdb(
+        self, raw_df: pd.DataFrame, tmp_path: Path
+    ) -> None:
+        cleaned, _ = clean(raw_df)
+        enriched = add_diameter_estimate(cleaned)
+        orbital = add_orbital_features(enriched)
+        physical = add_physical_features(orbital)
+        composition = add_composition_features(physical)
+        atlas = add_economic_score(composition)
+
+        parquet_path = tmp_path / "atlas.parquet"
+        atlas.to_parquet(parquet_path, index=False)
+
+        with CostAtlasDB(parquet_path) as db:
+            stats = db.stats()
+            assert stats["total_objects"].iloc[0] == 7
+            top = db.top_accessible(n=3)
+            assert len(top) <= 3
+            assert "economic_score" in top.columns

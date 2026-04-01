@@ -161,15 +161,20 @@ def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
         result.loc[mask, "accessibility"] = access
         result.loc[mask, "economic_score"] = score
 
-    # Rank: highest economic_score = rank 1
+    # Rank: highest economic_score = rank 1, ties broken by name (deterministic)
     scored = result["economic_score"].notna()
     result["economic_priority_rank"] = np.nan
     if scored.any():
-        result.loc[scored, "economic_priority_rank"] = (
-            result.loc[scored, "economic_score"]
-            .rank(ascending=False, method="min")
-            .astype(int)
+        sort_cols = ["economic_score"]
+        ascending = [False]
+        if "name" in result.columns:
+            sort_cols.append("name")
+            ascending.append(True)
+        ranked = (
+            result.loc[scored, sort_cols]
+            .sort_values(sort_cols, ascending=ascending)
         )
+        result.loc[ranked.index, "economic_priority_rank"] = range(1, len(ranked) + 1)
 
     return result
 

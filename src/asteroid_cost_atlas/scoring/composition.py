@@ -142,40 +142,50 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
     comp_class = np.full(n, "U", dtype=object)
     comp_source = np.full(n, "none", dtype=object)
 
+    # All indexing uses positional (iloc-style) via .values arrays
+    # to avoid bugs with non-default DataFrame indices.
+
     # Layer 1: taxonomy (highest confidence)
     if "taxonomy" in df.columns:
-        has_tax = df["taxonomy"].notna()
-        for idx in df.index[has_tax]:
-            mapped = classify_taxonomy(str(df.loc[idx, "taxonomy"]))
-            if mapped != "U":
-                comp_class[idx] = mapped
-                comp_source[idx] = "taxonomy"
+        tax_vals = df["taxonomy"].values
+        has_tax = pd.notna(tax_vals)
+        if has_tax.any():
+            mapped = np.array([classify_taxonomy(str(v)) for v in tax_vals[has_tax]])
+            found = mapped != "U"
+            positions = np.where(has_tax)[0][found]
+            comp_class[positions] = mapped[found]
+            comp_source[positions] = "taxonomy"
 
     # Layer 2: spectral_type fallback
     if "spectral_type" in df.columns:
+        spec_vals = df["spectral_type"].values
         still_unknown = comp_class == "U"
-        has_spec = df["spectral_type"].notna() & still_unknown
-        for idx in df.index[has_spec]:
-            mapped = classify_taxonomy(str(df.loc[idx, "spectral_type"]))
-            if mapped != "U":
-                comp_class[idx] = mapped
-                comp_source[idx] = "taxonomy"
+        has_spec = pd.notna(spec_vals) & still_unknown
+        if has_spec.any():
+            mapped = np.array([classify_taxonomy(str(v)) for v in spec_vals[has_spec]])
+            found = mapped != "U"
+            positions = np.where(has_spec)[0][found]
+            comp_class[positions] = mapped[found]
+            comp_source[positions] = "taxonomy"
 
     # Layer 3: albedo fallback
     if "albedo" in df.columns:
+        alb_vals = df["albedo"].to_numpy(dtype=float, na_value=np.nan)
         still_unknown = comp_class == "U"
-        has_albedo = df["albedo"].notna() & still_unknown
-        for idx in df.index[has_albedo]:
-            mapped = classify_albedo(float(df.loc[idx, "albedo"]))
-            if mapped != "U":
-                comp_class[idx] = mapped
-                comp_source[idx] = "albedo"
+        has_albedo = np.isfinite(alb_vals) & (alb_vals > 0) & still_unknown
+        if has_albedo.any():
+            mapped = np.array([classify_albedo(float(v)) for v in alb_vals[has_albedo]])
+            found = mapped != "U"
+            positions = np.where(has_albedo)[0][found]
+            comp_class[positions] = mapped[found]
+            comp_source[positions] = "albedo"
 
     result["composition_class"] = comp_class
     result["composition_source"] = comp_source
-    result["resource_value_usd_per_kg"] = [
-        resource_value_per_kg(c) for c in comp_class
-    ]
+
+    # Vectorized value lookup
+    value_map = np.vectorize(resource_value_per_kg)
+    result["resource_value_usd_per_kg"] = value_map(comp_class)
 
     return result
 
