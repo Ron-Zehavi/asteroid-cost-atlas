@@ -40,6 +40,8 @@ asteroid-enrich = "asteroid_cost_atlas.ingest.enrich:main"
 asteroid-ingest-lcdb = "asteroid_cost_atlas.ingest.ingest_lcdb:main"
 asteroid-score-orbital = "asteroid_cost_atlas.scoring.orbital:main"
 asteroid-score-physical = "asteroid_cost_atlas.scoring.physical:main"
+asteroid-score-composition = "asteroid_cost_atlas.scoring.composition:main"
+asteroid-atlas = "asteroid_cost_atlas.scoring.economic:main"
 
 [project.optional-dependencies]
 dev = [
