@@ -12,8 +12,14 @@ Reads the latest sbdb_clean_*.parquet and applies two enrichment layers:
 
        D = (1329 / sqrt(p_v)) × 10^(-H/5)
 
-   Uses measured albedo when available (including LCDB-sourced albedo),
-   otherwise falls back to DEFAULT_ALBEDO = 0.154.
+   Albedo priority (highest to lowest):
+     a. Measured albedo from SBDB or LCDB
+     b. Taxonomy-aware class prior (if taxonomy is available)
+     c. Population default (0.154)
+
+   Taxonomy-aware albedo priors improve diameter estimates significantly:
+   a C-type asteroid with pV=0.06 gets a diameter ~60% larger than the
+   same H with the default pV=0.154.
 
 Output columns added:
   - ``diameter_estimated_km`` — measured or H-derived diameter
@@ -36,9 +42,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-# Default geometric albedo when no measurement is available.
+from asteroid_cost_atlas.scoring.composition import classify_taxonomy
+
+# Default geometric albedo when no measurement or taxonomy is available.
 # 0.154 is the population-average across all asteroid classes.
 DEFAULT_ALBEDO = 0.154
+
+# Taxonomy-aware albedo priors by composition class.
+# Median values from WISE/NEOWISE survey (Mainzer et al. 2011).
+_CLASS_ALBEDO: dict[str, float] = {
+    "C": 0.06,    # carbonaceous — dark
+    "S": 0.25,    # silicaceous — moderate
+    "M": 0.14,    # metallic / X-complex — moderate-dark
+    "V": 0.35,    # basaltic (Vestoids) — bright
+}
 
 logger = logging.getLogger(__name__)
 
@@ -128,18 +145,50 @@ def merge_lcdb(df: pd.DataFrame, lcdb_path: Path) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
+def _resolve_albedo_prior(df: pd.DataFrame, mask: pd.Series[bool]) -> np.ndarray:
+    """
+    Build an albedo array for rows needing H→D estimation.
+
+    Priority:
+      1. Measured albedo (from SBDB or LCDB)
+      2. Taxonomy-aware class prior (if taxonomy column exists)
+      3. Population default (0.154)
+    """
+    n = int(mask.sum())
+    albedo = np.full(n, DEFAULT_ALBEDO)
+
+    # Layer 1: measured albedo
+    if "albedo" in df.columns:
+        a_raw = df.loc[mask, "albedo"].to_numpy(dtype=float)
+        has_measured = np.isfinite(a_raw) & (a_raw > 0)
+        albedo[has_measured] = a_raw[has_measured]
+
+    # Layer 2: taxonomy-aware prior for remaining unknowns
+    still_default = albedo == DEFAULT_ALBEDO
+    if still_default.any() and "taxonomy" in df.columns:
+        tax_vals = df.loc[mask, "taxonomy"].values
+        for i in np.where(still_default)[0]:
+            tax = tax_vals[i]
+            if pd.notna(tax):
+                comp = classify_taxonomy(str(tax))
+                if comp in _CLASS_ALBEDO:
+                    albedo[i] = _CLASS_ALBEDO[comp]
+
+    return albedo
+
+
 def add_diameter_estimate(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add ``diameter_estimated_km`` and ``diameter_source`` columns.
 
     Required input columns: abs_magnitude (H).
-    Optional input columns: diameter_km, albedo.
+    Optional input columns: diameter_km, albedo, taxonomy.
 
     - Rows with a measured diameter_km get source = "measured" and
       diameter_estimated_km = diameter_km (pass-through).
     - Rows with H but no measured diameter get an estimate from the
-      H-to-diameter formula, using measured albedo if available or
-      DEFAULT_ALBEDO otherwise.  Source = "estimated".
+      H-to-diameter formula. Albedo priority: measured → taxonomy
+      class prior → population default (0.154).
     - Rows missing both H and diameter get NaN / NaN.
     """
     if "abs_magnitude" not in df.columns:
@@ -163,13 +212,7 @@ def add_diameter_estimate(df: pd.DataFrame) -> pd.DataFrame:
 
     if needs_estimate.any():
         h = df.loc[needs_estimate, "abs_magnitude"].to_numpy(dtype=float)
-
-        # Use measured albedo where available, else default
-        if "albedo" in df.columns:
-            a_raw = df.loc[needs_estimate, "albedo"].to_numpy(dtype=float)
-            albedo = np.where(np.isfinite(a_raw) & (a_raw > 0), a_raw, DEFAULT_ALBEDO)
-        else:
-            albedo = np.full_like(h, DEFAULT_ALBEDO)
+        albedo = _resolve_albedo_prior(df, needs_estimate)
 
         valid = np.isfinite(h)
         estimated = np.full_like(h, np.nan)

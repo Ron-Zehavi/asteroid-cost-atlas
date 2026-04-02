@@ -6,7 +6,7 @@ score and produces the final ranked atlas dataset.
 
 Economic model
 --------------
-Three components are combined into a composite score:
+Four components:
 
 1. **Estimated mass** (kg):
        mass = density × (4/3) × π × (D/2)³
@@ -21,21 +21,31 @@ Three components are combined into a composite score:
 2. **Estimated total value** (USD):
        value = mass × resource_value_usd_per_kg
 
-3. **Accessibility score** (dimensionless, higher = more accessible):
-       accessibility = 1 / (delta_v_km_s)²
+   Resource values come from the meteorite-analog model in
+   composition.py (Cannon+ 2023, Lodders+ 2025).
 
-   Energy required scales with v². Lower delta-v = dramatically cheaper.
+3. **Mission cost proxy** (USD/kg delivered):
+       cost_per_kg = LEO_launch_cost × exp(2 × dv / Ve)
+
+   Based on Tsiolkovsky rocket equation:
+     LEO launch cost: $2,700/kg (Falcon Heavy, 2024 pricing)
+     Specific impulse: 320 s (bipropellant)
+     Round-trip factor: 2× (outbound + return)
 
 4. **Economic score** (USD·accessibility):
-       economic_score = value × accessibility
+       economic_score = value × (1 / dv²)
 
-   The final ranking sorts by this score descending. It answers:
+   The ranking sorts by this score descending:
    "Which asteroid offers the most value for the least mission energy?"
 
-All estimates carry large uncertainties — they are suitable for
-comparative ranking, not absolute cost/revenue projections.
+All estimates carry large uncertainties — suitable for comparative
+ranking, not absolute cost/revenue projections.
 
-References: Sonter (1997); Sanchez & McInnes (2013); Elvis (2014).
+References
+----------
+  Cannon, Gialich & Acain (2023), Planet. Space Sci. 225, 105608
+  Lodders, Bergemann & Palme (2025), arXiv:2502.10575
+  Sonter (1997); Sanchez & McInnes (2013); Elvis (2014)
 """
 
 from __future__ import annotations
@@ -60,6 +70,12 @@ _DENSITY: dict[str, float] = {
     "U": 2000.0,
 }
 
+# Mission cost model parameters
+LEO_COST_PER_KG = 2700.0    # $/kg to LEO (Falcon Heavy, 2024)
+ISP = 320.0                  # seconds (bipropellant)
+G0 = 9.81                   # m/s²
+VE = ISP * G0 / 1000.0      # exhaust velocity in km/s
+
 _REQUIRED_COLUMNS = {
     "diameter_estimated_km",
     "delta_v_km_s",
@@ -80,6 +96,17 @@ def estimated_mass_kg(diameter_km: float, composition_class: str) -> float:
     density = _DENSITY.get(composition_class, _DENSITY["U"])
     radius_m = (diameter_km * 1000.0) / 2.0
     return density * (4.0 / 3.0) * math.pi * radius_m ** 3
+
+
+def mission_cost_per_kg(delta_v_km_s: float) -> float:
+    """
+    Estimated round-trip cost per kg delivered (USD).
+
+    Uses Tsiolkovsky equation: cost = LEO_cost × exp(2 × dv / Ve).
+    """
+    if delta_v_km_s <= 0 or not math.isfinite(delta_v_km_s):
+        return float("nan")
+    return LEO_COST_PER_KG * math.exp(2.0 * delta_v_km_s / VE)
 
 
 def accessibility_score(delta_v_km_s: float) -> float:
@@ -113,6 +140,8 @@ def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
     Added columns:
       - ``estimated_mass_kg``
       - ``estimated_value_usd``
+      - ``mission_cost_usd_per_kg`` — round-trip delivery cost
+      - ``profit_ratio`` — resource_value / mission_cost (>1 = profitable)
       - ``accessibility``
       - ``economic_score``
       - ``economic_priority_rank`` (1 = best)
@@ -124,6 +153,7 @@ def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     for col in (
         "estimated_mass_kg", "estimated_value_usd",
+        "mission_cost_usd_per_kg", "profit_ratio",
         "accessibility", "economic_score",
     ):
         result[col] = np.nan
@@ -151,17 +181,21 @@ def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
         radius_m = (d * 1000.0) / 2.0
         mass = densities * (4.0 / 3.0) * np.pi * radius_m ** 3
 
-        # Value and accessibility
+        # Value and cost
         total_value = mass * val
+        cost = LEO_COST_PER_KG * np.exp(2.0 * v / VE)
+        profit = val / cost
         access = 1.0 / (v ** 2)
         score = total_value * access
 
         result.loc[mask, "estimated_mass_kg"] = mass
         result.loc[mask, "estimated_value_usd"] = total_value
+        result.loc[mask, "mission_cost_usd_per_kg"] = cost
+        result.loc[mask, "profit_ratio"] = profit
         result.loc[mask, "accessibility"] = access
         result.loc[mask, "economic_score"] = score
 
-    # Rank: highest economic_score = rank 1, ties broken by name (deterministic)
+    # Rank: highest economic_score = rank 1, ties broken by name
     scored = result["economic_score"].notna()
     result["economic_priority_rank"] = np.nan
     if scored.any():
@@ -213,6 +247,7 @@ def main() -> int:
     result = add_economic_score(df)
 
     scored = result["economic_score"].notna().sum()
+    profitable = (result["profit_ratio"] > 1.0).sum()
     top = result.nsmallest(1, "economic_priority_rank")
     top_name = top["name"].iloc[0] if len(top) else "N/A"
 
@@ -221,10 +256,10 @@ def main() -> int:
     result.to_parquet(output_path, index=False, engine="pyarrow")
 
     logger.info(
-        "Saved %s — %d scored, %d unscored, #1: %s, %.1fs",
+        "Saved %s — %d scored, %d profitable (ratio>1), #1: %s, %.1fs",
         output_path.name,
         scored,
-        len(result) - scored,
+        profitable,
         top_name,
         time.perf_counter() - started,
     )

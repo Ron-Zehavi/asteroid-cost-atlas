@@ -50,22 +50,17 @@ NASA SBDB API          LCDB (minplanobs.org)
        │  data/processed/sbdb_physical_*.parquet
        ▼
 ┌────────────────────────┐
-│  6. Composition Proxies │  C/S/M-type classification signals from albedo + taxonomy
+│  6. Composition Proxies │  C/S/M/V classification from taxonomy + albedo
 └──────┬─────────────────┘
-       │
+       │  data/processed/sbdb_composition_*.parquet
        ▼
-┌──────────────────────┐
-│  7. Economic Scoring  │  Mission-cost proxies, resource density estimates
-└──────┬───────────────┘
-       │
-       ▼
-┌────────────────────┐
-│  8. Atlas Assembly  │  Unified dataset with priority ranking
-└──────┬─────────────┘
-       │
+┌──────────────────────────────┐
+│  7. Economic Scoring + Atlas │  Mass, value, accessibility → economic_priority_rank
+└──────┬───────────────────────┘
+       │  data/processed/atlas_*.parquet (33 columns, final output)
        ▼
 ┌──────────────────────────┐
-│  9. Analytics & Outputs  │  Parquet exports, DuckDB query layer, visualisation
+│  8. Analytics & Outputs  │  DuckDB query layer, Jupyter notebook, visualisation
 └──────────────────────────┘
 ```
 
@@ -83,7 +78,9 @@ asteroid-cost-atlas/
 │   │   └── enrich.py            # LCDB merge + H→diameter estimation
 │   ├── scoring/
 │   │   ├── orbital.py           # Delta-v, Tisserand, inclination penalty
-│   │   └── physical.py          # Gravity, rotation feasibility, regolith
+│   │   ├── physical.py          # Gravity, rotation feasibility, regolith
+│   │   ├── composition.py       # C/S/M/V classification from taxonomy + albedo
+│   │   └── economic.py          # Mass, value, accessibility, ranking
 │   ├── models/
 │   │   └── asteroid.py          # Pydantic AsteroidRecord model
 │   ├── utils/
@@ -97,9 +94,13 @@ asteroid-cost-atlas/
 │   ├── test_enrich.py
 │   ├── test_orbital.py
 │   ├── test_physical.py
+│   ├── test_composition.py
+│   ├── test_economic.py
 │   ├── test_query.py
 │   ├── test_pipeline_integration.py
 │   └── test_settings.py
+├── notebooks/
+│   └── explore_atlas.ipynb      # Interactive data explorer (Jupyter)
 ├── configs/
 │   └── config.yaml              # API fields, page size, output paths
 ├── data/
@@ -182,16 +183,18 @@ All paths are resolved relative to the repository root regardless of working dir
 
 ```bash
 # Run the full pipeline end-to-end
-make pipeline     # ingest → ingest-lcdb → clean → enrich → score-orbital → score-physical
+make pipeline     # ingest → clean → enrich → orbital → physical → composition → atlas
 
 # Or run stages individually
-make ingest          # fetch raw SBDB catalog (~1.5M objects)
-make ingest-lcdb     # fetch LCDB rotation periods (~31K records)
-make clean-data      # validate and filter → clean Parquet
-make enrich          # LCDB merge + H→diameter estimation
-make score-orbital   # add orbital features → scored Parquet
-make score-physical  # add physical feasibility → scored Parquet
-make query           # run a sample query against the atlas
+make ingest            # fetch raw SBDB catalog (~1.5M objects)
+make ingest-lcdb       # fetch LCDB rotation periods (~31K records)
+make clean-data        # validate and filter → clean Parquet
+make enrich            # LCDB merge + H→diameter estimation
+make score-orbital     # add orbital features → scored Parquet
+make score-physical    # add physical feasibility → scored Parquet
+make score-composition # classify C/S/M/V composition from taxonomy + albedo
+make atlas             # economic scoring + final ranked atlas
+make query             # run a sample query against the atlas
 
 # CLI entry points (after pip install -e .)
 asteroid-ingest --page-size 5000 --output data/raw
@@ -209,22 +212,24 @@ make typecheck
 Available `make` targets:
 
 ```
-  install         Install package and dev dependencies
-  pipeline        Run full pipeline end-to-end
-  ingest          Fetch raw SBDB catalog
-  ingest-lcdb     Fetch LCDB rotation periods
-  clean-data      Validate and filter raw CSV
-  enrich          LCDB merge + H→diameter estimation
-  score-orbital   Apply orbital scoring
-  score-physical  Apply physical feasibility scoring
-  query           Run a sample query against the atlas
-  data-info       Show available pipeline outputs and metadata
-  clean-outputs   Remove processed Parquet outputs (keeps raw data)
-  lint            Lint with ruff
-  format          Format with ruff
-  typecheck       Type-check with mypy
-  test            Run tests with coverage
-  clean           Remove build artifacts and caches
+  install            Install package and dev dependencies
+  pipeline           Run full pipeline end-to-end
+  ingest             Fetch raw SBDB catalog
+  ingest-lcdb        Fetch LCDB rotation periods
+  clean-data         Validate and filter raw CSV
+  enrich             LCDB merge + H→diameter estimation
+  score-orbital      Apply orbital scoring
+  score-physical     Apply physical feasibility scoring
+  score-composition  Classify composition from taxonomy + albedo
+  atlas              Economic scoring + final ranked atlas
+  query              Run a sample query against the atlas
+  data-info          Show available pipeline outputs and metadata
+  clean-outputs      Remove processed Parquet outputs (keeps raw data)
+  lint               Lint with ruff
+  format             Format with ruff
+  typecheck          Type-check with mypy
+  test               Run tests with coverage
+  clean              Remove build artifacts and caches
 ```
 
 ---
@@ -245,7 +250,7 @@ Available `make` targets:
 
 **Data enrichment** ✓
 - H→diameter estimation via IAU formula (D = 1329/sqrt(pV) x 10^(-H/5))
-- Uses measured albedo when available, default pV = 0.154 otherwise
+- Taxonomy-aware albedo priors: measured albedo → class prior (C: 0.06, S: 0.25, M: 0.14, V: 0.35) → default 0.154
 - LCDB merge: taxonomy, albedo gap-fill, rotation provenance tracking
 - Provenance columns: `diameter_source` ("measured"/"estimated"), `rotation_source` ("sbdb"/"lcdb")
 
@@ -261,9 +266,27 @@ Available `make` targets:
 - Regolith likelihood [0, 1] — combined size and rotation signal
 - Each feature scored independently (gravity doesn't require rotation data)
 
+**Composition proxies with meteorite-analog resource model** ✓
+- C/S/M/V/U classification from taxonomy → spectral type → albedo inference
+- Multi-resource value model based on Cannon et al. (2023) and Lodders et al. (2025):
+  - **Water** — C-type: 15 wt%, extraction yield 60%, $500/kg in-space propellant value
+  - **Bulk metals** — Fe/Ni/Co: M-type 98.6 wt%, $50/kg in-orbit construction value
+  - **Precious metals** — PGMs+Au: M-type 42 ppm (Cannon 2023 50th %ile), $35,000/kg spot
+- Per-class total value: C=$50/kg (water-dominated), M=$25/kg (metals), S=$7/kg, V=$4/kg
+- 149,782 classified (29,991 from taxonomy, 119,791 from albedo)
+
+**Economic scoring and atlas assembly** ✓
+- Mass estimation from diameter + composition-specific density (C: 1,300, S: 2,700, M: 5,300 kg/m³)
+- Mission cost model: $2,700/kg LEO (Falcon Heavy) × exp(2 × dv / Ve), Isp=320s bipropellant
+- Profit ratio: resource_value / mission_cost — **no asteroid is profitable with current chemical propulsion** (best ratio: 0.012). Profitability requires Starship-class economics (~$100/kg LEO) or electric propulsion (Isp ~3000s)
+- `economic_priority_rank` — strict ordering with deterministic tie-breaking
+- Final atlas: 1,519,870 asteroids scored across 36 columns
+
 **DuckDB query layer** ✓
 - Zero-server SQL over Parquet via stable `atlas` view
 - Pre-built queries: `top_accessible`, `nea_candidates`, `stats`, `delta_v_histogram`
+- Context manager support (`with CostAtlasDB(path) as db:`)
+- Input validation on all query parameters
 - Returns DataFrames — ready for web API serialisation or notebook display
 
 **Config system** ✓
@@ -322,13 +345,89 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 | `rotation_feasibility` | Operational spin-rate score [0, 1] — 2.3% coverage |
 | `regolith_likelihood` | Regolith presence score [0, 1] — 2.3% coverage |
 
-**Planned** (added by future pipeline stages):
+**Composition proxies** (added by `make score-composition`):
 
-| Feature Group | Columns |
+| Column | Description |
 |---|---|
-| Composition | albedo + taxonomy-derived C/S/M-type signal, taxonomy-aware albedo priors |
-| Economic | resource density estimate, mission-cost proxy score |
-| Ranking | `economic_priority_rank` |
+| `composition_class` | C/S/M/V/U — inferred from taxonomy, spectral type, or albedo |
+| `composition_source` | Provenance: "taxonomy", "albedo", or "none" |
+| `resource_value_usd_per_kg` | Total $/kg (sum of water + metals + precious) |
+| `water_value_usd_per_kg` | Water contribution to value (C-type: $45/kg, others: $0) |
+| `metals_value_usd_per_kg` | Bulk metals contribution (M-type: $24.65/kg) |
+| `precious_value_usd_per_kg` | PGM+Au contribution (M-type: $0.44/kg) |
+
+**Economic scoring** (added by `make atlas`):
+
+| Column | Description |
+|---|---|
+| `estimated_mass_kg` | Mass from diameter + composition-specific density |
+| `estimated_value_usd` | mass × resource_value_usd_per_kg |
+| `mission_cost_usd_per_kg` | Round-trip delivery cost: $2,700 × exp(2 × dv / Ve) |
+| `profit_ratio` | resource_value / mission_cost — >1 means theoretically profitable |
+| `accessibility` | 1/delta_v² — energy cost scaling |
+| `economic_score` | estimated_value × accessibility |
+| `economic_priority_rank` | Strict ranking (1 = best target) — 1,519,870 scored |
+
+---
+
+## Resource Valuation Methodology
+
+The economic model is built on measured meteorite compositions, not theoretical estimates.
+
+### Data sources
+
+| Source | Year | What it provides |
+|---|---|---|
+| **Cannon, Gialich & Acain** | 2023 | PGM concentrations in iron meteorites (50th %ile: 40.8 ppm). Supersedes Kargel (1994) estimates |
+| **Lodders, Bergemann & Palme** | 2025 | CI chondrite bulk chemistry: Fe 18.5%, Ni 1.1%, PGM+Au 3.4 ppm |
+| **Garenne et al.** | 2014 | Water content in CI/CM/CR chondrites: CI 10–20%, CM 4–13% |
+| **Dunn et al.** | 2010 | Metal fractions in ordinary chondrites: H 15–20%, L 7–11% Fe-Ni |
+
+### Resource value model
+
+Each asteroid's value comes from three resource groups:
+
+| Resource | Extraction yield | Price basis | Dominant class |
+|---|---|---|---|
+| **Water** (H₂O) | 60% | $500/kg in cislunar space (propellant) | C-type (15 wt%) |
+| **Bulk metals** (Fe, Ni, Co) | 50% | $50/kg in orbit (construction) | M-type (98.6 wt%) |
+| **Precious metals** (PGMs + Au) | 30% | $35,000/kg Earth-return spot | M-type (42 ppm) |
+
+### Resulting values per kg of raw asteroid material
+
+| Class | Water | Metals | Precious | **Total** |
+|---|---|---|---|---|
+| **C** (carbonaceous) | $45.00 | $4.92 | $0.04 | **$49.96** |
+| **M** (metallic) | $0.00 | $24.65 | $0.44 | **$25.09** |
+| **S** (silicaceous) | $0.00 | $7.22 | $0.05 | **$7.27** |
+| **V** (basaltic) | $0.00 | $3.75 | $0.01 | **$3.76** |
+| **U** (unknown) | $4.50 | $6.25 | $0.05 | **$10.80** |
+
+### Mission cost model
+
+Round-trip delivery cost per kg, based on Tsiolkovsky rocket equation:
+
+```
+cost_per_kg = $2,700 × exp(2 × delta_v / Ve)
+```
+
+| Parameter | Value | Source |
+|---|---|---|
+| LEO launch cost | $2,700/kg | Falcon Heavy (2024) |
+| Specific impulse | 320 s | Bipropellant (MMH/NTO) |
+| Exhaust velocity | 3.14 km/s | Isp × g₀ |
+| Round-trip factor | 2× | Outbound + return |
+
+### Key finding: no asteroid is currently profitable
+
+The best case is a C-type NEO at delta-v 0.74 km/s with a profit ratio of **0.012** — still 85× too expensive. This is consistent with the literature: asteroid mining with chemical propulsion is not economically viable at current launch costs.
+
+Profitability requires one or more of:
+- **Starship-class launch costs** (~$100/kg to LEO instead of $2,700)
+- **Electric propulsion** (Isp ~3,000 s instead of 320 s — 10× more fuel-efficient)
+- **In-situ resource utilization** (use water as propellant at the asteroid, avoiding Earth-return costs)
+
+The atlas ranking remains valid for **comparative** target selection: "which asteroid is the *least unprofitable*" is the right question for planning future missions under improved economics.
 
 ---
 
@@ -345,11 +444,12 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 - [x] Physical feasibility module — gravity, rotation feasibility, regolith likelihood
 - [x] DuckDB query layer — `top_accessible`, `nea_candidates`, `stats`, `delta_v_histogram`
 - [x] CI/CD — GitHub Actions with Python 3.11/3.12 matrix
+- [x] Composition proxy module — C/S/M/V classification from taxonomy + albedo
+- [x] Economic scoring engine — mass × resource value × accessibility ranking
+- [x] Atlas assembly — 33-column unified dataset with `economic_priority_rank`
+- [x] Interactive notebook — Jupyter explorer with 10 query sections
 - [ ] NEOWISE integration — ~164K measured diameters/albedos for quality uplift
-- [ ] Taxonomy-aware albedo priors — class/family-specific pV for better H→D estimates
-- [ ] Composition proxy module — C/S/M-type classification from albedo + taxonomy
-- [ ] Economic scoring engine — resource density x accessibility composite
-- [ ] Atlas assembly — merge all feature groups into unified ranked dataset
+- [x] Taxonomy-aware albedo priors — class-specific pV (C: 0.06, S: 0.25, M: 0.14, V: 0.35)
 - [ ] JPL Horizons integration — higher-fidelity orbital elements
 - [ ] Spectral catalog joins — SDSS/MOVIS taxonomy for improved composition signals
 

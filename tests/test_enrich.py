@@ -94,10 +94,51 @@ class TestAddDiameterEstimate:
 
     def test_estimated_from_h_default_albedo(self) -> None:
         result = add_diameter_estimate(self._sample_df())
-        # Row 2: H=22, no albedo → uses DEFAULT_ALBEDO
+        # Row 2: H=22, no albedo, no taxonomy → uses DEFAULT_ALBEDO
         assert result.loc[2, "diameter_source"] == "estimated"
         expected = h_to_diameter_km(22.0, DEFAULT_ALBEDO)
         assert result.loc[2, "diameter_estimated_km"] == pytest.approx(expected, rel=1e-6)
+
+    def test_taxonomy_aware_prior_c_type(self) -> None:
+        df = pd.DataFrame(
+            {
+                "abs_magnitude": [15.0],
+                "diameter_km": [None],
+                "albedo": [None],
+                "taxonomy": ["C"],
+            }
+        )
+        result = add_diameter_estimate(df)
+        # C-type prior pV=0.06, not default 0.154
+        expected = h_to_diameter_km(15.0, 0.06)
+        assert result.loc[0, "diameter_estimated_km"] == pytest.approx(expected, rel=1e-6)
+
+    def test_measured_albedo_overrides_taxonomy_prior(self) -> None:
+        df = pd.DataFrame(
+            {
+                "abs_magnitude": [15.0],
+                "diameter_km": [None],
+                "albedo": [0.30],
+                "taxonomy": ["C"],
+            }
+        )
+        result = add_diameter_estimate(df)
+        # Measured albedo 0.30 takes priority over C-type prior 0.06
+        expected = h_to_diameter_km(15.0, 0.30)
+        assert result.loc[0, "diameter_estimated_km"] == pytest.approx(expected, rel=1e-6)
+
+    def test_unknown_taxonomy_falls_back_to_default(self) -> None:
+        df = pd.DataFrame(
+            {
+                "abs_magnitude": [15.0],
+                "diameter_km": [None],
+                "albedo": [None],
+                "taxonomy": ["ZZZ"],
+            }
+        )
+        result = add_diameter_estimate(df)
+        expected = h_to_diameter_km(15.0, DEFAULT_ALBEDO)
+        assert result.loc[0, "diameter_estimated_km"] == pytest.approx(expected, rel=1e-6)
 
     def test_missing_h_produces_nan(self) -> None:
         result = add_diameter_estimate(self._sample_df())

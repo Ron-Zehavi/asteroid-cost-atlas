@@ -3,10 +3,10 @@ from __future__ import annotations
 import pandas as pd
 
 from asteroid_cost_atlas.scoring.composition import (
-    _VALUE_PER_KG,
     add_composition_features,
     classify_albedo,
     classify_taxonomy,
+    resource_breakdown,
     resource_value_per_kg,
 )
 
@@ -60,14 +60,41 @@ class TestClassifyAlbedo:
 
 
 class TestResourceValuePerKg:
-    def test_known_classes(self) -> None:
-        assert resource_value_per_kg("C") == 500.0
-        assert resource_value_per_kg("M") == 50.0
-        assert resource_value_per_kg("S") == 1.0
+    def test_c_type_dominated_by_water(self) -> None:
+        bd = resource_breakdown("C")
+        assert bd["water_usd_per_kg"] > bd["metals_usd_per_kg"]
+        assert bd["water_usd_per_kg"] > bd["precious_usd_per_kg"]
 
-    def test_unknown_gets_default(self) -> None:
-        assert resource_value_per_kg("U") == _VALUE_PER_KG["U"]
-        assert resource_value_per_kg("???") == _VALUE_PER_KG["U"]
+    def test_m_type_dominated_by_metals(self) -> None:
+        bd = resource_breakdown("M")
+        assert bd["metals_usd_per_kg"] > bd["water_usd_per_kg"]
+        assert bd["metals_usd_per_kg"] > bd["precious_usd_per_kg"]
+
+    def test_c_type_most_valuable_per_kg(self) -> None:
+        # Water makes C-types the most valuable per kg
+        assert resource_value_per_kg("C") > resource_value_per_kg("S")
+        assert resource_value_per_kg("C") > resource_value_per_kg("M")
+
+    def test_m_type_more_valuable_than_s(self) -> None:
+        assert resource_value_per_kg("M") > resource_value_per_kg("S")
+
+    def test_v_type_lowest(self) -> None:
+        assert resource_value_per_kg("V") < resource_value_per_kg("S")
+
+    def test_all_values_positive(self) -> None:
+        for cls in ("C", "S", "M", "V", "U"):
+            assert resource_value_per_kg(cls) > 0
+
+    def test_unknown_gets_intermediate_value(self) -> None:
+        u_val = resource_value_per_kg("U")
+        assert u_val > resource_value_per_kg("V")
+        assert u_val < resource_value_per_kg("C")
+
+    def test_breakdown_sums_to_total(self) -> None:
+        for cls in ("C", "S", "M", "V", "U"):
+            bd = resource_breakdown(cls)
+            expected = bd["water_usd_per_kg"] + bd["metals_usd_per_kg"] + bd["precious_usd_per_kg"]
+            assert abs(bd["total_usd_per_kg"] - expected) < 0.01
 
 
 class TestAddCompositionFeatures:
@@ -81,11 +108,13 @@ class TestAddCompositionFeatures:
             }
         )
 
-    def test_adds_three_columns(self) -> None:
+    def test_adds_six_columns(self) -> None:
         result = add_composition_features(self._sample_df())
-        assert "composition_class" in result.columns
-        assert "composition_source" in result.columns
-        assert "resource_value_usd_per_kg" in result.columns
+        for col in (
+            "composition_class", "composition_source", "resource_value_usd_per_kg",
+            "water_value_usd_per_kg", "metals_value_usd_per_kg", "precious_value_usd_per_kg",
+        ):
+            assert col in result.columns
 
     def test_taxonomy_takes_priority(self) -> None:
         result = add_composition_features(self._sample_df())
@@ -99,7 +128,6 @@ class TestAddCompositionFeatures:
 
     def test_albedo_fallback(self) -> None:
         result = add_composition_features(self._sample_df())
-        # Row 3: no taxonomy/spectral, albedo=0.04 → C
         assert result.loc[3, "composition_class"] == "C"
         assert result.loc[3, "composition_source"] == "albedo"
 
@@ -123,3 +151,8 @@ class TestAddCompositionFeatures:
     def test_preserves_row_count(self) -> None:
         df = self._sample_df()
         assert len(add_composition_features(df)) == len(df)
+
+    def test_water_value_zero_for_non_c(self) -> None:
+        result = add_composition_features(self._sample_df())
+        # Row 1 is S-type
+        assert result.loc[1, "water_value_usd_per_kg"] == 0.0
