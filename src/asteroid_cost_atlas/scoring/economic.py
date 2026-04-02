@@ -1,51 +1,35 @@
 """
 Economic scoring and atlas assembly.
 
-Combines all upstream features into a single economic accessibility
-score and produces the final ranked atlas dataset.
+Subsystem-based mission cost model with per-metal break-even analysis.
 
-Economic model
---------------
-Four components:
+Mission cost structure
+----------------------
+  mission_min_cost = $300M (spacecraft + mining payload + autonomy +
+                    I&T + operations reserve)
+                    Calibrated from Discovery-class analogs.
 
-1. **Estimated mass** (kg):
-       mass = density × (4/3) × π × (D/2)³
+  total_cost = mission_min_cost
+             + system_mass × transport_per_kg
+             + extracted_mass × extraction_overhead
 
-   Density by composition class:
-     C: 1,300 kg/m³  (carbonaceous chondrites)
-     S: 2,700 kg/m³  (ordinary chondrites)
-     M: 5,300 kg/m³  (iron meteorites)
-     V: 3,500 kg/m³  (HED achondrites)
-     U: 2,000 kg/m³  (population average)
+  margin_per_kg = specimen_value - transport_cost - extraction_overhead
+  break_even_kg = mission_min_cost / margin_per_kg
 
-2. **Estimated total value** (USD):
-       value = mass × resource_value_usd_per_kg
+Per-metal break-even
+--------------------
+  For each metal, the break-even mass tells you how many kg of that
+  specific metal you need to extract to cover the $300M mission cost:
+    break_even_{metal}_kg = mission_min_cost / (metal_price - transport - extraction)
 
-   Resource values come from the meteorite-analog model in
-   composition.py (Cannon+ 2023, Lodders+ 2025).
+  This answers: "to justify a mission to asteroid X, you need to extract
+  at least Y kg of gold (or Z kg of platinum, etc.)"
 
-3. **Mission cost proxy** (USD/kg delivered):
-       cost_per_kg = LEO_launch_cost × exp(2 × dv / Ve)
-
-   Based on Tsiolkovsky rocket equation:
-     LEO launch cost: $2,700/kg (Falcon Heavy, 2024 pricing)
-     Specific impulse: 320 s (bipropellant)
-     Round-trip factor: 2× (outbound + return)
-
-4. **Economic score** (USD·accessibility):
-       economic_score = value × (1 / dv²)
-
-   The ranking sorts by this score descending:
-   "Which asteroid offers the most value for the least mission energy?"
-
-All estimates carry large uncertainties — suitable for comparative
-ranking, not absolute cost/revenue projections.
+Spot prices updated April 2, 2026 from Kitco and DailyMetalPrice.
 
 References
 ----------
-  Cannon, Gialich & Acain (2023), Planet. Space Sci. 225, 105608
-  Lodders, Bergemann & Palme (2025), arXiv:2502.10575
-  Sonter (1997); Sanchez & McInnes (2013); Elvis (2014)
+  Cannon+ (2023), Lodders+ (2025), Sonter (1997), Elvis (2014)
 """
 
 from __future__ import annotations
@@ -59,28 +43,36 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from asteroid_cost_atlas.scoring.composition import (
+    METAL_SPOT_PRICE,
+    METALS,
+    PRECIOUS_EXTRACTION_YIELD,
+)
+
 logger = logging.getLogger(__name__)
 
-# Bulk density by composition class (kg/m³)
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 _DENSITY: dict[str, float] = {
-    "C": 1300.0,
-    "S": 2700.0,
-    "M": 5300.0,
-    "V": 3500.0,
-    "U": 2000.0,
+    "C": 1300.0, "S": 2700.0, "M": 5300.0, "V": 3500.0, "U": 2000.0,
 }
 
-# Mission cost model parameters
-LEO_COST_PER_KG = 2700.0    # $/kg to LEO (Falcon Heavy, 2024)
-ISP = 320.0                  # seconds (bipropellant)
-G0 = 9.81                   # m/s²
-VE = ISP * G0 / 1000.0      # exhaust velocity in km/s
+FALCON_LEO_COST = 2700.0
+ISP = 320.0
+G0 = 9.81
+VE = ISP * G0 / 1000.0
+
+MISSION_MIN_COST = 300_000_000.0
+MISSION_SYSTEM_MASS_KG = 1_000.0
+EXTRACTION_OVERHEAD = 5_000.0
+MISSION_CAPACITY_KG = 1_000.0
 
 _REQUIRED_COLUMNS = {
-    "diameter_estimated_km",
-    "delta_v_km_s",
-    "composition_class",
-    "resource_value_usd_per_kg",
+    "diameter_estimated_km", "delta_v_km_s",
+    "composition_class", "resource_value_usd_per_kg",
+    "specimen_value_per_kg",
 }
 
 
@@ -99,30 +91,17 @@ def estimated_mass_kg(diameter_km: float, composition_class: str) -> float:
 
 
 def mission_cost_per_kg(delta_v_km_s: float) -> float:
-    """
-    Estimated round-trip cost per kg delivered (USD).
-
-    Uses Tsiolkovsky equation: cost = LEO_cost × exp(2 × dv / Ve).
-    """
+    """Round-trip transport cost per kg: $2,700 × exp(2 × dv / Ve)."""
     if delta_v_km_s <= 0 or not math.isfinite(delta_v_km_s):
         return float("nan")
-    return LEO_COST_PER_KG * math.exp(2.0 * delta_v_km_s / VE)
+    return FALCON_LEO_COST * math.exp(2.0 * delta_v_km_s / VE)
 
 
 def accessibility_score(delta_v_km_s: float) -> float:
-    """Accessibility as inverse square of delta-v. Higher = more accessible."""
+    """Accessibility as inverse square of delta-v."""
     if delta_v_km_s <= 0 or not math.isfinite(delta_v_km_s):
         return float("nan")
     return 1.0 / (delta_v_km_s ** 2)
-
-
-def economic_score(
-    mass_kg: float, value_per_kg: float, access: float
-) -> float:
-    """Composite economic score: value × accessibility."""
-    if not math.isfinite(mass_kg * value_per_kg * access):
-        return float("nan")
-    return mass_kg * value_per_kg * access
 
 
 # ---------------------------------------------------------------------------
@@ -131,41 +110,35 @@ def economic_score(
 
 
 def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add economic scoring columns and rank the atlas.
-
-    Required input columns: diameter_estimated_km, delta_v_km_s,
-                            composition_class, resource_value_usd_per_kg
-
-    Added columns:
-      - ``estimated_mass_kg``
-      - ``estimated_value_usd``
-      - ``mission_cost_usd_per_kg`` — round-trip delivery cost
-      - ``profit_ratio`` — resource_value / mission_cost (>1 = profitable)
-      - ``accessibility``
-      - ``economic_score``
-      - ``economic_priority_rank`` (1 = best)
-    """
+    """Add economic scoring columns and rank the atlas."""
     missing = _REQUIRED_COLUMNS - set(df.columns)
     if missing:
         raise ValueError(f"DataFrame is missing required columns: {missing}")
 
     result = df.copy()
-    for col in (
-        "estimated_mass_kg", "estimated_value_usd",
-        "mission_cost_usd_per_kg", "profit_ratio",
-        "accessibility", "economic_score",
-    ):
-        result[col] = np.nan
 
-    # Valid rows: have both diameter and delta-v
+    base_cols = [
+        "estimated_mass_kg", "mission_cost_usd_per_kg", "accessibility",
+        "total_extractable_precious_kg", "total_precious_value_usd",
+        "margin_per_kg", "break_even_kg", "min_viable_kg",
+        "is_viable", "missions_supported",
+        "mission_revenue_usd", "mission_cost_usd", "mission_profit_usd",
+        "campaign_revenue_usd", "campaign_cost_usd", "campaign_profit_usd",
+        "economic_score",
+    ]
+    metal_ext_cols = [f"extractable_{m}_kg" for m in METALS]
+    metal_be_cols = [f"break_even_{m}_kg" for m in METALS]
+    for col in base_cols + metal_ext_cols + metal_be_cols:
+        result[col] = np.nan
+    result["is_viable"] = False
+
     has_data = df["diameter_estimated_km"].notna() & df["delta_v_km_s"].notna()
 
     if has_data.any():
         d_km = df.loc[has_data, "diameter_estimated_km"].to_numpy(dtype=float)
         dv = df.loc[has_data, "delta_v_km_s"].to_numpy(dtype=float)
         comp = df.loc[has_data, "composition_class"].to_numpy()
-        vpkg = df.loc[has_data, "resource_value_usd_per_kg"].to_numpy(dtype=float)
+        sv_pkg = df.loc[has_data, "specimen_value_per_kg"].to_numpy(dtype=float)
 
         valid = np.isfinite(d_km) & np.isfinite(dv) & (d_km > 0) & (dv > 0)
         mask = has_data.copy()
@@ -174,28 +147,130 @@ def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
         d = d_km[valid]
         v = dv[valid]
         c = comp[valid]
-        val = vpkg[valid]
+        sv = sv_pkg[valid]
 
-        # Mass: density × (4/3)π r³
+        # --- Mass ---
         densities = np.array([_DENSITY.get(cls, _DENSITY["U"]) for cls in c])
         radius_m = (d * 1000.0) / 2.0
         mass = densities * (4.0 / 3.0) * np.pi * radius_m ** 3
 
-        # Value and cost
-        total_value = mass * val
-        cost = LEO_COST_PER_KG * np.exp(2.0 * v / VE)
-        profit = val / cost
+        # --- Transport ---
+        transport = FALCON_LEO_COST * np.exp(2.0 * v / VE)
         access = 1.0 / (v ** 2)
-        score = total_value * access
 
         result.loc[mask, "estimated_mass_kg"] = mass
-        result.loc[mask, "estimated_value_usd"] = total_value
-        result.loc[mask, "mission_cost_usd_per_kg"] = cost
-        result.loc[mask, "profit_ratio"] = profit
+        result.loc[mask, "mission_cost_usd_per_kg"] = transport
         result.loc[mask, "accessibility"] = access
-        result.loc[mask, "economic_score"] = score
 
-    # Rank: highest economic_score = rank 1, ties broken by name
+        # --- Per-metal extractable kg + per-metal break-even ---
+        total_precious_kg = np.zeros_like(mass)
+        total_precious_val = np.zeros_like(mass)
+
+        for metal in METALS:
+            price = METAL_SPOT_PRICE[metal]
+            ppm_col = f"{metal}_ppm"
+            if ppm_col in df.columns:
+                ppm = df.loc[has_data, ppm_col].to_numpy(dtype=float)[valid]
+            else:
+                ppm = np.zeros_like(mass)
+
+            ext_kg = mass * (ppm / 1e6) * PRECIOUS_EXTRACTION_YIELD
+            ext_val = ext_kg * price
+            result.loc[mask, f"extractable_{metal}_kg"] = ext_kg
+            total_precious_kg += ext_kg
+            total_precious_val += ext_val
+
+            # Per-metal break-even: kg of this metal to cover full fixed cost
+            metal_margin = price - transport - EXTRACTION_OVERHEAD
+            be_metal = np.full_like(metal_margin, np.nan)
+            pos = metal_margin > 0
+            metal_fixed = MISSION_MIN_COST + MISSION_SYSTEM_MASS_KG * transport
+            be_metal[pos] = metal_fixed[pos] / metal_margin[pos]
+            result.loc[mask, f"break_even_{metal}_kg"] = be_metal
+
+        result.loc[mask, "total_extractable_precious_kg"] = total_precious_kg
+        result.loc[mask, "total_precious_value_usd"] = total_precious_val
+
+        # --- Overall margin and break-even (weighted specimen value) ---
+        margin = sv - transport - EXTRACTION_OVERHEAD
+        result.loc[mask, "margin_per_kg"] = margin
+
+        # Total fixed cost = mission minimum + getting the mining system there
+        total_fixed = MISSION_MIN_COST + MISSION_SYSTEM_MASS_KG * transport
+        be = np.full_like(margin, np.nan)
+        positive_margin = margin > 0
+        be[positive_margin] = total_fixed[positive_margin] / margin[positive_margin]
+        result.loc[mask, "break_even_kg"] = be
+
+        min_viable = np.full_like(be, np.nan)
+        min_viable[positive_margin] = np.maximum(
+            be[positive_margin], MISSION_SYSTEM_MASS_KG
+        )
+        result.loc[mask, "min_viable_kg"] = min_viable
+
+        # Viable = asteroid has enough material for at least one
+        # full break-even payload
+        viable = positive_margin & np.isfinite(be) & (total_precious_kg >= be)
+        result.loc[mask, "is_viable"] = viable
+
+        # --- Campaign: only profitable missions ---
+        # A mission is profitable when its payload ≥ break_even_kg.
+        # Number of missions = floor(extractable / break_even_kg).
+        # Only count missions where each one carries ≥ break_even_kg.
+        n_missions = np.zeros_like(mass)
+        mission_payload = np.zeros_like(mass)
+
+        if viable.any():
+            be_viable = be[viable]
+            ext_viable = total_precious_kg[viable]
+            # How many full break-even loads fit?
+            n = np.floor(ext_viable / be_viable)
+            n_missions[viable] = n
+            # Distribute ALL extractable evenly across missions.
+            # Each mission carries extractable/n > break_even (guaranteed
+            # because n = floor(ext/be), so ext/n >= be).
+            mission_payload[viable] = ext_viable / np.maximum(n, 1.0)
+
+        result.loc[mask, "missions_supported"] = n_missions
+
+        # Per-mission economics (each mission is individually profitable)
+        per_mission_rev = mission_payload * sv
+        per_mission_cost = (
+            MISSION_MIN_COST
+            + MISSION_SYSTEM_MASS_KG * transport
+            + mission_payload * (transport + EXTRACTION_OVERHEAD)
+        )
+        per_mission_profit = per_mission_rev - per_mission_cost
+
+        result.loc[mask, "mission_revenue_usd"] = np.where(
+            n_missions > 0, per_mission_rev, np.nan
+        )
+        result.loc[mask, "mission_cost_usd"] = np.where(
+            n_missions > 0, per_mission_cost, np.nan
+        )
+        result.loc[mask, "mission_profit_usd"] = np.where(
+            n_missions > 0, per_mission_profit, np.nan
+        )
+
+        # Campaign totals (sum of all profitable missions)
+        campaign_rev = n_missions * per_mission_rev
+        campaign_cost = n_missions * per_mission_cost
+        campaign_profit = n_missions * per_mission_profit
+
+        result.loc[mask, "campaign_revenue_usd"] = np.where(
+            n_missions > 0, campaign_rev, np.nan
+        )
+        result.loc[mask, "campaign_cost_usd"] = np.where(
+            n_missions > 0, campaign_cost, np.nan
+        )
+        result.loc[mask, "campaign_profit_usd"] = np.where(
+            n_missions > 0, campaign_profit, np.nan
+        )
+
+        # --- Economic score ---
+        result.loc[mask, "economic_score"] = total_precious_val * access
+
+    # Rank
     scored = result["economic_score"].notna()
     result["economic_priority_rank"] = np.nan
     if scored.any():
@@ -208,7 +283,9 @@ def add_economic_score(df: pd.DataFrame) -> pd.DataFrame:
             result.loc[scored, sort_cols]
             .sort_values(sort_cols, ascending=ascending)
         )
-        result.loc[ranked.index, "economic_priority_rank"] = range(1, len(ranked) + 1)
+        result.loc[ranked.index, "economic_priority_rank"] = range(
+            1, len(ranked) + 1
+        )
 
     return result
 
@@ -234,7 +311,8 @@ def main() -> int:
 
     _module = Path(__file__).resolve()
     repo_root = next(
-        p for p in [_module, *_module.parents] if (p / "pyproject.toml").exists()
+        p for p in [_module, *_module.parents]
+        if (p / "pyproject.toml").exists()
     )
     processed_dir = repo_root / "data" / "processed"
 
@@ -246,22 +324,19 @@ def main() -> int:
 
     result = add_economic_score(df)
 
-    scored = result["economic_score"].notna().sum()
-    profitable = (result["profit_ratio"] > 1.0).sum()
-    top = result.nsmallest(1, "economic_priority_rank")
-    top_name = top["name"].iloc[0] if len(top) else "N/A"
+    margin_pos = (result["margin_per_kg"] > 0).sum()
+    viable = result["is_viable"].sum()
+    total_missions = result.loc[result["is_viable"], "missions_supported"].sum()
 
     today = datetime.now(UTC).strftime("%Y%m%d")
     output_path = processed_dir / f"atlas_{today}.parquet"
     result.to_parquet(output_path, index=False, engine="pyarrow")
 
+    logger.info("Margin > 0: %d asteroids", margin_pos)
+    logger.info("Viable (enough material): %d asteroids", viable)
+    logger.info("Total missions supported: %.0f", total_missions)
     logger.info(
-        "Saved %s — %d scored, %d profitable (ratio>1), #1: %s, %.1fs",
-        output_path.name,
-        scored,
-        profitable,
-        top_name,
-        time.perf_counter() - started,
+        "Saved %s — %.1fs", output_path.name, time.perf_counter() - started
     )
 
     return 0

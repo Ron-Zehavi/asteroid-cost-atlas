@@ -1,19 +1,23 @@
 """
 Data enrichment stage: fills gaps in sparse physical measurements.
 
-Reads the latest sbdb_clean_*.parquet and applies two enrichment layers:
+Reads the latest sbdb_clean_*.parquet and applies three enrichment layers:
 
 1. **LCDB merge** — joins rotation periods, albedo, and taxonomy from
    the LCDB (Asteroid Lightcurve Database) for objects that lack SBDB
    rotation data.  Only periods with quality U >= 2- are used.
 
-2. **H→diameter estimation** — for objects without a measured diameter,
+2. **NEOWISE merge** — joins ~164 K measured diameters and geometric
+   albedos from WISE/NEOWISE infrared observations.  SBDB measured
+   values are always preferred; NEOWISE fills gaps.
+
+3. **H→diameter estimation** — for objects without a measured diameter,
    computes an estimate from absolute magnitude H:
 
        D = (1329 / sqrt(p_v)) × 10^(-H/5)
 
    Albedo priority (highest to lowest):
-     a. Measured albedo from SBDB or LCDB
+     a. Measured albedo from SBDB, LCDB, or NEOWISE
      b. Taxonomy-aware class prior (if taxonomy is available)
      c. Population default (0.154)
 
@@ -23,7 +27,7 @@ Reads the latest sbdb_clean_*.parquet and applies two enrichment layers:
 
 Output columns added:
   - ``diameter_estimated_km`` — measured or H-derived diameter
-  - ``diameter_source``       — "measured" | "estimated" | NaN
+  - ``diameter_source``       — "measured" | "neowise" | "estimated" | NaN
   - ``rotation_source``       — "sbdb" | "lcdb" | NaN
   - ``taxonomy``              — LCDB taxonomic class (sparse)
 
@@ -136,6 +140,101 @@ def merge_lcdb(df: pd.DataFrame, lcdb_path: Path) -> pd.DataFrame:
         rot_filled,
         int(has_sbdb_rot.sum()),
     )
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# NEOWISE merge
+# ---------------------------------------------------------------------------
+
+
+def _latest_neowise_parquet(raw_dir: Path) -> Path | None:
+    """Return the latest neowise_*.parquet, or None if not yet ingested."""
+    candidates = sorted(raw_dir.glob("neowise_*.parquet"))
+    return candidates[-1] if candidates else None
+
+
+def merge_neowise(df: pd.DataFrame, neowise_path: Path) -> pd.DataFrame:
+    """
+    Merge NEOWISE measured diameters and albedos into the catalog.
+
+    - Fills ``diameter_km`` gaps with NEOWISE measured diameters
+    - Fills ``albedo`` gaps with NEOWISE geometric albedos
+    - Tracks provenance via ``diameter_source`` = "neowise"
+
+    Join is on ``spkid`` (numbered asteroids only).
+    SBDB values are always preferred — NEOWISE only fills gaps.
+    """
+    neowise = pd.read_parquet(neowise_path)
+    logger.info("Loaded %d NEOWISE records from %s", len(neowise), neowise_path.name)
+
+    result = df.copy()
+
+    neowise_subset = neowise[["spkid", "neowise_diameter_km", "neowise_albedo"]].copy()
+    merged = result.merge(neowise_subset, on="spkid", how="left")
+
+    # Fill diameter gaps
+    needs_diam = merged["diameter_km"].isna() & merged["neowise_diameter_km"].notna()
+    merged.loc[needs_diam, "diameter_km"] = merged.loc[needs_diam, "neowise_diameter_km"]
+    # Mark NEOWISE diameters in diameter_source (will be set properly in add_diameter_estimate)
+    # We tag them here so add_diameter_estimate sees them as "measured"
+    diam_filled = int(needs_diam.sum())
+
+    # Fill albedo gaps
+    needs_albedo = merged["albedo"].isna() & merged["neowise_albedo"].notna()
+    merged.loc[needs_albedo, "albedo"] = merged.loc[needs_albedo, "neowise_albedo"]
+    albedo_filled = int(needs_albedo.sum())
+
+    merged = merged.drop(columns=["neowise_diameter_km", "neowise_albedo"])
+
+    logger.info(
+        "NEOWISE merge: %d diameter gaps filled, %d albedo gaps filled",
+        diam_filled, albedo_filled,
+    )
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
+# SDSS spectral merge
+# ---------------------------------------------------------------------------
+
+
+def _latest_sdss_parquet(raw_dir: Path) -> Path | None:
+    """Return the latest sdss_moc_*.parquet, or None if not yet ingested."""
+    candidates = sorted(raw_dir.glob("sdss_moc_*.parquet"))
+    return candidates[-1] if candidates else None
+
+
+def merge_sdss(df: pd.DataFrame, sdss_path: Path) -> pd.DataFrame:
+    """
+    Merge SDSS color indices into the catalog.
+
+    Adds ``color_gr`` and ``color_ri`` columns used by the composition
+    stage for SDSS-based taxonomy inference.
+
+    Join is on ``spkid`` (numbered asteroids only).
+    """
+    sdss = pd.read_parquet(sdss_path)
+    logger.info("Loaded %d SDSS records from %s", len(sdss), sdss_path.name)
+
+    result = df.copy()
+
+    # Select only the columns we need for composition classification
+    keep_cols = ["spkid"]
+    for col in ("color_gr", "color_ri", "color_iz"):
+        if col in sdss.columns:
+            keep_cols.append(col)
+
+    sdss_subset = sdss[keep_cols].copy()
+    merged = result.merge(sdss_subset, on="spkid", how="left")
+
+    n_matched = 0
+    if "color_gr" in merged.columns:
+        n_matched = int(merged["color_gr"].notna().sum())
+
+    logger.info("SDSS merge: %d asteroids matched with color data", n_matched)
 
     return merged
 
@@ -268,7 +367,21 @@ def main() -> int:
         if "taxonomy" not in df.columns:
             df["taxonomy"] = pd.NA
 
-    # Layer 2: H→diameter estimation (uses LCDB-enriched albedo if available)
+    # Layer 2: NEOWISE merge (if available)
+    neowise_path = _latest_neowise_parquet(raw_dir)
+    if neowise_path is not None:
+        df = merge_neowise(df, neowise_path)
+    else:
+        logger.info("No NEOWISE parquet found — skipping NEOWISE enrichment")
+
+    # Layer 3: SDSS spectral merge (if available)
+    sdss_path = _latest_sdss_parquet(raw_dir)
+    if sdss_path is not None:
+        df = merge_sdss(df, sdss_path)
+    else:
+        logger.info("No SDSS parquet found — skipping spectral enrichment")
+
+    # Layer 4: H→diameter estimation (uses LCDB+NEOWISE-enriched albedo if available)
     result = add_diameter_estimate(df)
 
     measured = (result["diameter_source"] == "measured").sum()

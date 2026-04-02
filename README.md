@@ -19,49 +19,51 @@ Inspired by the accessibility and value estimates pioneered by [Asterank](https:
 ## Pipeline Architecture
 
 ```
-NASA SBDB API          LCDB (minplanobs.org)
-     │                        │
-     ▼                        ▼
-┌─────────────┐     ┌──────────────────┐
-│  1. Ingest  │     │  1b. Ingest LCDB │  Rotation periods, taxonomy, albedo
-└──────┬──────┘     └────────┬─────────┘
-       │  data/raw/sbdb_*.csv         │  data/raw/lcdb_*.parquet
-       ▼                              │
-┌─────────────┐                       │
-│  2. Clean   │  Drop corrupt records │
-└──────┬──────┘                       │
-       │  data/processed/sbdb_clean_*.parquet
-       ▼                              │
-┌─────────────────┐                   │
-│  3. Enrich      │◄──────────────────┘
-│  LCDB merge     │  Fill rotation + albedo gaps from LCDB
-│  H→diameter     │  Estimate diameter from absolute magnitude (99.9% coverage)
-└──────┬──────────┘
-       │  data/processed/sbdb_enriched_*.parquet
-       ▼
-┌──────────────────────┐
-│  4. Orbital Features │  Delta-v proxies, inclination penalties, Tisserand parameter
-└──────┬───────────────┘
-       │  data/processed/sbdb_orbital_*.parquet
-       ▼
-┌───────────────────────────┐
-│  5. Physical Feasibility  │  Surface gravity, rotation feasibility, regolith likelihood
-└──────┬────────────────────┘
-       │  data/processed/sbdb_physical_*.parquet
-       ▼
-┌────────────────────────┐
-│  6. Composition Proxies │  C/S/M/V classification from taxonomy + albedo
-└──────┬─────────────────┘
-       │  data/processed/sbdb_composition_*.parquet
-       ▼
-┌──────────────────────────────┐
-│  7. Economic Scoring + Atlas │  Mass, value, accessibility → economic_priority_rank
-└──────┬───────────────────────┘
-       │  data/processed/atlas_*.parquet (33 columns, final output)
-       ▼
-┌──────────────────────────┐
-│  8. Analytics & Outputs  │  DuckDB query layer, Jupyter notebook, visualisation
-└──────────────────────────┘
+NASA SBDB API     LCDB          NEOWISE (PDS)     SDSS MOC        JPL Horizons
+     │              │                │                │                │
+     ▼              ▼                ▼                ▼                │
+┌──────────┐  ┌───────────┐  ┌─────────────┐  ┌─────────────┐       │
+│ 1. SBDB  │  │ 1b. LCDB  │  │ 1c. NEOWISE │  │ 1d. SDSS    │       │
+│  Ingest  │  │  Ingest   │  │   Ingest    │  │   Ingest    │       │
+└────┬─────┘  └─────┬─────┘  └──────┬──────┘  └──────┬──────┘       │
+     │              │               │                │               │
+     ▼              │               │                │               │
+┌──────────┐        │               │                │               │
+│ 2. Clean │        │               │                │               │
+└────┬─────┘        │               │                │               │
+     │              │               │                │               │
+     ▼              ▼               ▼                ▼               │
+┌────────────────────────────────────────────────┐                   │
+│  3. Enrich                                     │                   │
+│  LCDB merge → NEOWISE merge → SDSS merge       │                   │
+│  → H→diameter estimation (99.9% coverage)      │                   │
+└────────────────────┬───────────────────────────┘                   │
+                     │                                               │
+                     ▼                                               ▼
+              ┌──────────────────────┐                    ┌───────────────┐
+              │  4. Orbital Features │◄───────────────────│ 1e. Horizons  │
+              │  Delta-v, Tisserand  │  Prefer Horizons   │  Ingest (NEA) │
+              └──────┬───────────────┘  elements for NEAs └───────────────┘
+                     │
+                     ▼
+              ┌───────────────────────────┐
+              │  5. Physical Feasibility  │  Gravity, rotation, regolith
+              └──────┬────────────────────┘
+                     │
+                     ▼
+              ┌────────────────────────┐
+              │  6. Composition Proxies │  Taxonomy → spectral → SDSS → albedo
+              └──────┬─────────────────┘
+                     │
+                     ▼
+              ┌──────────────────────────────┐
+              │  7. Economic Scoring + Atlas │  Mass, value → economic_priority_rank
+              └──────┬───────────────────────┘
+                     │
+                     ▼
+              ┌──────────────────────────┐
+              │  8. Analytics & Outputs  │  DuckDB, Jupyter, visualisation
+              └──────────────────────────┘
 ```
 
 ---
@@ -74,8 +76,11 @@ asteroid-cost-atlas/
 │   ├── ingest/
 │   │   ├── ingest_sbdb.py       # SBDB API fetch: pagination, caching, metadata
 │   │   ├── ingest_lcdb.py       # LCDB download: rotation periods, taxonomy
+│   │   ├── ingest_neowise.py    # NEOWISE diameters/albedos (~164K objects)
+│   │   ├── ingest_spectral.py   # SDSS MOC photometry, color indices
+│   │   ├── ingest_horizons.py   # JPL Horizons high-precision orbital elements (NEAs)
 │   │   ├── clean_sbdb.py        # Rule-based data cleaning with per-rule logging
-│   │   └── enrich.py            # LCDB merge + H→diameter estimation
+│   │   └── enrich.py            # LCDB + NEOWISE + SDSS merge, H→diameter estimation
 │   ├── scoring/
 │   │   ├── orbital.py           # Delta-v, Tisserand, inclination penalty
 │   │   ├── physical.py          # Gravity, rotation feasibility, regolith
@@ -90,6 +95,9 @@ asteroid-cost-atlas/
 │   ├── conftest.py
 │   ├── test_ingest_sbdb.py
 │   ├── test_ingest_lcdb.py
+│   ├── test_ingest_neowise.py
+│   ├── test_ingest_spectral.py
+│   ├── test_ingest_horizons.py
 │   ├── test_clean_sbdb.py
 │   ├── test_enrich.py
 │   ├── test_orbital.py
@@ -108,6 +116,9 @@ asteroid-cost-atlas/
 │   │   ├── cache/               # Page-level API response cache
 │   │   └── metadata/            # Per-run fetch metadata (JSON)
 │   └── processed/               # Pipeline output Parquets
+├── docs/
+│   ├── DATA_DICTIONARY.md       # Complete field reference for all pipeline stages
+│   └── METHODOLOGY.md           # Scientific methodology, models, and source citations
 ├── .github/workflows/
 │   └── ci.yml                   # Lint → type-check → test (Python 3.11/3.12)
 ├── Makefile
@@ -183,16 +194,19 @@ All paths are resolved relative to the repository root regardless of working dir
 
 ```bash
 # Run the full pipeline end-to-end
-make pipeline     # ingest → clean → enrich → orbital → physical → composition → atlas
+make pipeline     # ingest → enrich → score → atlas (all sources)
 
 # Or run stages individually
 make ingest            # fetch raw SBDB catalog (~1.5M objects)
 make ingest-lcdb       # fetch LCDB rotation periods (~31K records)
+make ingest-neowise    # fetch NEOWISE diameters/albedos (~164K objects)
+make ingest-spectral   # fetch SDSS MOC photometry (~40K objects)
 make clean-data        # validate and filter → clean Parquet
-make enrich            # LCDB merge + H→diameter estimation
-make score-orbital     # add orbital features → scored Parquet
+make enrich            # LCDB + NEOWISE + SDSS merge, H→diameter estimation
+make ingest-horizons   # fetch JPL Horizons elements for NEAs (~35K objects)
+make score-orbital     # add orbital features (Horizons-enhanced) → scored Parquet
 make score-physical    # add physical feasibility → scored Parquet
-make score-composition # classify C/S/M/V composition from taxonomy + albedo
+make score-composition # classify C/S/M/V from taxonomy + SDSS colors + albedo
 make atlas             # economic scoring + final ranked atlas
 make query             # run a sample query against the atlas
 
@@ -207,20 +221,23 @@ make lint
 make typecheck
 ```
 
-> **Note:** A full SBDB ingest fetches ~1.5 million records across ~75 paginated requests. On a typical connection this takes a few minutes. Subsequent runs skip all network requests — pages are cached to `data/raw/cache/` by content hash. LCDB download is ~40 MB and takes about a minute.
+> **Note:** A full SBDB ingest fetches ~1.5 million records across ~75 paginated requests. On a typical connection this takes a few minutes. Subsequent runs skip all network requests — pages are cached to `data/raw/cache/` by content hash. LCDB download is ~40 MB, NEOWISE ~20 MB, SDSS MOC ~50 MB. Horizons is the slowest step — fetching ~35K NEAs at 2 req/s takes several hours; results are cached in `data/raw/horizons_*.parquet`.
 
 Available `make` targets:
 
 ```
-  install            Install package and dev dependencies
+  install            Install package and dev dependencies (requires Python 3.11+)
   pipeline           Run full pipeline end-to-end
   ingest             Fetch raw SBDB catalog
   ingest-lcdb        Fetch LCDB rotation periods
+  ingest-neowise     Fetch NEOWISE diameters/albedos
+  ingest-spectral    Fetch SDSS MOC photometry
+  ingest-horizons    Fetch JPL Horizons elements for NEAs
   clean-data         Validate and filter raw CSV
-  enrich             LCDB merge + H→diameter estimation
-  score-orbital      Apply orbital scoring
+  enrich             LCDB + NEOWISE + SDSS merge, H→diameter estimation
+  score-orbital      Apply orbital scoring (Horizons-enhanced)
   score-physical     Apply physical feasibility scoring
-  score-composition  Classify composition from taxonomy + albedo
+  score-composition  Classify composition from taxonomy + SDSS + albedo
   atlas              Economic scoring + final ranked atlas
   query              Run a sample query against the atlas
   data-info          Show available pipeline outputs and metadata
@@ -239,6 +256,9 @@ Available `make` targets:
 **Ingestion** ✓
 - Full SBDB catalog fetch via paginated API requests (~1.5M objects, 15 fields)
 - LCDB integration — 31K+ rotation periods with quality filtering (U >= 2-)
+- NEOWISE integration — ~164K measured diameters and geometric albedos from thermal infrared
+- SDSS MOC integration — ~40K photometric color indices for composition inference
+- JPL Horizons integration — high-precision orbital elements for NEAs (~35K objects)
 - Page-level MD5-keyed disk cache — SBDB reruns skip network entirely
 - Per-run metadata output (timestamp, source URL, fields, record count)
 - Structured JSON logging with retry adapter for API resilience
@@ -249,15 +269,20 @@ Available `make` targets:
 - Raw data never modified — all filtering is explicit and auditable
 
 **Data enrichment** ✓
+- Four-layer merge: LCDB → NEOWISE → SDSS → H→diameter estimation
+- NEOWISE merge: fills diameter gaps (9% → ~20% directly measured), fills albedo gaps (9% → ~20%)
+- SDSS merge: adds g-r, r-i color indices for composition inference downstream
 - H→diameter estimation via IAU formula (D = 1329/sqrt(pV) x 10^(-H/5))
-- Taxonomy-aware albedo priors: measured albedo → class prior (C: 0.06, S: 0.25, M: 0.14, V: 0.35) → default 0.154
+- Taxonomy-aware albedo priors: measured albedo → NEOWISE → class prior (C: 0.06, S: 0.25, M: 0.14, V: 0.35) → default 0.154
 - LCDB merge: taxonomy, albedo gap-fill, rotation provenance tracking
-- Provenance columns: `diameter_source` ("measured"/"estimated"), `rotation_source` ("sbdb"/"lcdb")
+- Provenance columns: `diameter_source` ("measured"/"neowise"/"estimated"), `rotation_source` ("sbdb"/"lcdb")
 
 **Orbital scoring** ✓
 - Delta-v proxy (km/s) — Hohmann transfer + inclination correction (Shoemaker-Helin)
 - Tisserand parameter w.r.t. Jupiter — orbit stability and accessibility classification
 - Inclination penalty — normalised plane-change cost in [0, 1]
+- JPL Horizons preference — NEAs use higher-fidelity perturbed elements when available
+- `orbital_precision_source` column tracks "horizons" vs "sbdb" element provenance
 - Fully vectorised over the 1.5M-row catalog with strict input validation
 
 **Physical feasibility scoring** ✓
@@ -265,22 +290,27 @@ Available `make` targets:
 - Rotation feasibility [0, 1] — piecewise model penalising spin-barrier (<2h) and thermal cycling (>100h)
 - Regolith likelihood [0, 1] — combined size and rotation signal
 - Each feature scored independently (gravity doesn't require rotation data)
+- NEOWISE-measured diameters improve gravity estimates for ~164K objects
 
 **Composition proxies with meteorite-analog resource model** ✓
-- C/S/M/V/U classification from taxonomy → spectral type → albedo inference
+- Five-layer classification: taxonomy → spectral type → SDSS colors → albedo → "U"
+- SDSS color-index inference: empirical g-r/r-i boundaries classify C/S/V types
 - Multi-resource value model based on Cannon et al. (2023) and Lodders et al. (2025):
   - **Water** — C-type: 15 wt%, extraction yield 60%, $500/kg in-space propellant value
   - **Bulk metals** — Fe/Ni/Co: M-type 98.6 wt%, $50/kg in-orbit construction value
   - **Precious metals** — PGMs+Au: M-type 42 ppm (Cannon 2023 50th %ile), $35,000/kg spot
 - Per-class total value: C=$50/kg (water-dominated), M=$25/kg (metals), S=$7/kg, V=$4/kg
-- 149,782 classified (29,991 from taxonomy, 119,791 from albedo)
 
-**Economic scoring and atlas assembly** ✓
+**Economic scoring with mission-architecture cost model** ✓
 - Mass estimation from diameter + composition-specific density (C: 1,300, S: 2,700, M: 5,300 kg/m³)
-- Mission cost model: $2,700/kg LEO (Falcon Heavy) × exp(2 × dv / Ve), Isp=320s bipropellant
-- Profit ratio: resource_value / mission_cost — **no asteroid is profitable with current chemical propulsion** (best ratio: 0.012). Profitability requires Starship-class economics (~$100/kg LEO) or electric propulsion (Isp ~3000s)
+- Specimen-return model: selectively extract precious metals (Pt, Pd, Rh, Ir, Os, Ru, Au)
+- Subsystem-based mission cost: $300M minimum (spacecraft + payload + ops) + transport + extraction
+- Per-asteroid break-even analysis: minimum extraction to cover $300M fixed cost
+- **10,310 asteroids** with positive per-kg margin; **498 viable** (enough extractable material)
+- Every mission and campaign individually profitable by construction
+- Per-metal break-even: kg of each specific metal needed to justify mission
 - `economic_priority_rank` — strict ordering with deterministic tie-breaking
-- Final atlas: 1,519,870 asteroids scored across 36 columns
+- Final atlas: 1,519,870 asteroids scored
 
 **DuckDB query layer** ✓
 - Zero-server SQL over Parquet via stable `atlas` view
@@ -325,9 +355,11 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 | Column | Description |
 |---|---|
 | `diameter_estimated_km` | Measured diameter (pass-through) or H-derived estimate — 99.9% coverage |
-| `diameter_source` | Provenance: "measured" or "estimated" |
+| `diameter_source` | Provenance: "measured", "neowise", or "estimated" |
 | `rotation_source` | Provenance: "sbdb" or "lcdb" |
 | `taxonomy` | LCDB taxonomic class (C, S, V, B, M, etc.) — 2% coverage |
+| `color_gr` | SDSS g-r color index (sparse — ~40K objects) |
+| `color_ri` | SDSS r-i color index (sparse — ~40K objects) |
 
 **Orbital scoring** (added by `make score-orbital`):
 
@@ -336,6 +368,7 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 | `delta_v_km_s` | Simplified mission delta-v proxy (km/s) — Hohmann + inclination correction |
 | `tisserand_jupiter` | Tisserand parameter w.r.t. Jupiter — T_J > 3 main belt, 2–3 accessible NEAs |
 | `inclination_penalty` | Normalised plane-change cost in [0, 1] via sin²(i/2) |
+| `orbital_precision_source` | Element provenance: "horizons" (NEAs) or "sbdb" (all others) |
 
 **Physical feasibility scoring** (added by `make score-physical`):
 
@@ -349,8 +382,8 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 
 | Column | Description |
 |---|---|
-| `composition_class` | C/S/M/V/U — inferred from taxonomy, spectral type, or albedo |
-| `composition_source` | Provenance: "taxonomy", "albedo", or "none" |
+| `composition_class` | C/S/M/V/U — inferred from taxonomy, spectral type, SDSS colors, or albedo |
+| `composition_source` | Provenance: "taxonomy", "sdss_colors", "albedo", or "none" |
 | `resource_value_usd_per_kg` | Total $/kg (sum of water + metals + precious) |
 | `water_value_usd_per_kg` | Water contribution to value (C-type: $45/kg, others: $0) |
 | `metals_value_usd_per_kg` | Bulk metals contribution (M-type: $24.65/kg) |
@@ -361,12 +394,17 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 | Column | Description |
 |---|---|
 | `estimated_mass_kg` | Mass from diameter + composition-specific density |
-| `estimated_value_usd` | mass × resource_value_usd_per_kg |
-| `mission_cost_usd_per_kg` | Round-trip delivery cost: $2,700 × exp(2 × dv / Ve) |
-| `profit_ratio` | resource_value / mission_cost — >1 means theoretically profitable |
-| `accessibility` | 1/delta_v² — energy cost scaling |
-| `economic_score` | estimated_value × accessibility |
+| `mission_cost_usd_per_kg` | Falcon Heavy round-trip: $2,700 × exp(2 × dv / Ve) |
+| `extractable_{metal}_kg` | Extractable kg per metal (platinum, palladium, rhodium, iridium, osmium, ruthenium, gold) |
+| `total_extractable_precious_kg` | Sum of all extractable precious metals (kg) |
+| `total_precious_value_usd` | Total value of extractable precious metals (USD) |
+| `specimen_profit_per_kg` | Specimen value − transport − $5K overhead (>$0 = profitable) |
+| `mission_1t_revenue_usd` | Revenue from a 1-ton return mission |
+| `mission_1t_profit_usd` | Profit from a 1-ton return mission |
+| `economic_score` | precious_value × accessibility (for ranking) |
 | `economic_priority_rank` | Strict ranking (1 = best target) — 1,519,870 scored |
+
+> **Full documentation:** See [docs/DATA_DICTIONARY.md](./docs/DATA_DICTIONARY.md) for the complete field reference across all pipeline stages, and [docs/METHODOLOGY.md](./docs/METHODOLOGY.md) for the scientific methodology with full citations.
 
 ---
 
@@ -405,29 +443,57 @@ Each asteroid's value comes from three resource groups:
 
 ### Mission cost model
 
-Round-trip delivery cost per kg, based on Tsiolkovsky rocket equation:
+Subsystem-based architecture calibrated from Discovery-class analogs (NEAR, Hayabusa2, DART, OSIRIS-REx):
 
 ```
-cost_per_kg = $2,700 × exp(2 × delta_v / Ve)
+total_cost = mission_min_cost
+           + system_mass × transport_per_kg
+           + extracted_mass × extraction_overhead
+
+margin_per_kg = specimen_value - transport_per_kg - extraction_overhead
+break_even_kg = mission_min_cost / margin_per_kg
 ```
 
 | Parameter | Value | Source |
 |---|---|---|
-| LEO launch cost | $2,700/kg | Falcon Heavy (2024) |
-| Specific impulse | 320 s | Bipropellant (MMH/NTO) |
-| Exhaust velocity | 3.14 km/s | Isp × g₀ |
-| Round-trip factor | 2× | Outbound + return |
+| Mission minimum cost | $300M | Spacecraft bus + mining payload + autonomy + I&T + ops |
+| Transport per kg | $2,700 × exp(2 × dv / 3.14) | Falcon Heavy + Tsiolkovsky |
+| Extraction overhead | $5,000/kg | Mining + refining equipment amortized |
+| System mass | 1,000 kg | Minimum deployed infrastructure |
+| Mission capacity | 1,000 kg | Per-mission return payload |
 
-### Key finding: no asteroid is currently profitable
+### Specimen-return model
 
-The best case is a C-type NEO at delta-v 0.74 km/s with a profit ratio of **0.012** — still 85× too expensive. This is consistent with the literature: asteroid mining with chemical propulsion is not economically viable at current launch costs.
+The commodity model values bulk rock, but a real mission selectively extracts only precious metals. The **specimen-return model** computes value from 7 individual metals at spot prices:
 
-Profitability requires one or more of:
-- **Starship-class launch costs** (~$100/kg to LEO instead of $2,700)
-- **Electric propulsion** (Isp ~3,000 s instead of 320 s — 10× more fuel-efficient)
-- **In-situ resource utilization** (use water as propellant at the asteroid, avoiding Earth-return costs)
+| Metal | Spot $/kg | $/oz | C-type ppm | M-type ppm | Source |
+|---|---|---|---|---|---|
+| Rhodium | $299,000 | $9,300 | 0.13 | 2.0 | Kitco Apr 2, 2026 |
+| Iridium | $254,000 | $7,900 | 0.46 | 5.0 | DailyMetalPrice Mar 31, 2026 |
+| Gold | $150,740 | $4,690 | 0.15 | 1.0 | Kitco Apr 2, 2026 |
+| Platinum | $63,300 | $1,969 | 0.90 | 15.0 | Kitco Apr 2, 2026 |
+| Ruthenium | $56,260 | $1,750 | 0.68 | 6.0 | DailyMetalPrice Mar 31, 2026 |
+| Palladium | $47,870 | $1,489 | 0.56 | 8.0 | Kitco Apr 2, 2026 |
+| Osmium | $12,860 | ~$400 | 0.49 | 5.0 | Raw commodity est. |
 
-The atlas ranking remains valid for **comparative** target selection: "which asteroid is the *least unprofitable*" is the right question for planning future missions under improved economics.
+Weighted average specimen value: **~$90,000/kg** of refined concentrate.
+Extraction yield: 30%. Extraction overhead: $5,000/kg.
+
+### Key findings
+
+**10,310 asteroids** have positive per-kg margin. When the full fixed cost ($300M mission + system mass transport) is included, **498 are viable** — containing enough extractable precious metals for at least one profitable mission. Total of **23,127 profitable missions** supported, with every mission individually profitable.
+
+Top campaign profit: **$371M** across 11 missions. Break-even payload varies by delta-v:
+- dv < 1 km/s: ~4,300 kg break-even (margin ~$81K/kg)
+- dv = 3 km/s: ~5,500 kg break-even (margin ~$64K/kg)
+- dv > ~5.5 km/s: impossible (transport exceeds specimen value)
+
+Per asteroid, the atlas computes:
+- **Per-metal extractable mass** (kg of Pt, Pd, Rh, Ir, Os, Ru, Au)
+- **Break-even payload** (minimum extraction to cover $300M mission cost)
+- **Viability** (asteroid has enough material to break even)
+- **Missions supported** (total extraction ÷ mission capacity)
+- **Campaign profit** (total revenue − total cost across all missions)
 
 ---
 
@@ -448,10 +514,10 @@ The atlas ranking remains valid for **comparative** target selection: "which ast
 - [x] Economic scoring engine — mass × resource value × accessibility ranking
 - [x] Atlas assembly — 33-column unified dataset with `economic_priority_rank`
 - [x] Interactive notebook — Jupyter explorer with 10 query sections
-- [ ] NEOWISE integration — ~164K measured diameters/albedos for quality uplift
+- [x] NEOWISE integration — ~164K measured diameters/albedos for quality uplift
 - [x] Taxonomy-aware albedo priors — class-specific pV (C: 0.06, S: 0.25, M: 0.14, V: 0.35)
-- [ ] JPL Horizons integration — higher-fidelity orbital elements
-- [ ] Spectral catalog joins — SDSS/MOVIS taxonomy for improved composition signals
+- [x] JPL Horizons integration — higher-fidelity orbital elements (NEA-scoped)
+- [x] Spectral catalog joins — SDSS MOC photometry for improved composition signals
 
 ### Phase 2 — Interactive Mission Visualization Platform
 

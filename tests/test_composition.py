@@ -156,3 +156,49 @@ class TestAddCompositionFeatures:
         result = add_composition_features(self._sample_df())
         # Row 1 is S-type
         assert result.loc[1, "water_value_usd_per_kg"] == 0.0
+
+    def test_sdss_colors_classify_unknown(self) -> None:
+        """SDSS color indices should classify asteroids lacking taxonomy/spectral/albedo."""
+        df = pd.DataFrame(
+            {
+                "spkid": [1, 2, 3],
+                "taxonomy": [None, None, None],
+                "spectral_type": [None, None, None],
+                "albedo": [None, None, None],
+                "color_gr": [0.40, 0.55, 0.40],
+                "color_ri": [0.05, 0.12, 0.15],
+            }
+        )
+        result = add_composition_features(df)
+        assert result.loc[0, "composition_class"] == "C"
+        assert result.loc[0, "composition_source"] == "sdss_colors"
+        assert result.loc[1, "composition_class"] == "S"
+        assert result.loc[1, "composition_source"] == "sdss_colors"
+        assert result.loc[2, "composition_class"] == "V"
+        assert result.loc[2, "composition_source"] == "sdss_colors"
+
+    def test_taxonomy_overrides_sdss_colors(self) -> None:
+        """Taxonomy should take priority over SDSS color indices."""
+        df = pd.DataFrame(
+            {
+                "spkid": [1],
+                "taxonomy": ["M"],
+                "color_gr": [0.40],
+                "color_ri": [0.05],
+            }
+        )
+        result = add_composition_features(df)
+        assert result.loc[0, "composition_class"] == "M"
+        assert result.loc[0, "composition_source"] == "taxonomy"
+
+    def test_sdss_nan_colors_stay_unknown(self) -> None:
+        """NaN SDSS colors should not produce a classification."""
+        df = pd.DataFrame(
+            {
+                "spkid": [1],
+                "color_gr": [float("nan")],
+                "color_ri": [float("nan")],
+            }
+        )
+        result = add_composition_features(df)
+        assert result.loc[0, "composition_class"] == "U"

@@ -117,8 +117,11 @@ def add_orbital_features(df: pd.DataFrame) -> pd.DataFrame:
     Add orbital accessibility columns to the asteroid DataFrame.
 
     Required input columns : a_au, eccentricity, inclination_deg
-    Added output columns   : tisserand_jupiter, delta_v_km_s, inclination_penalty
+    Optional input columns : a_au_horizons, eccentricity_horizons, inclination_deg_horizons
+    Added output columns   : tisserand_jupiter, delta_v_km_s, inclination_penalty,
+                             orbital_precision_source
 
+    When Horizons elements are available they are preferred over SBDB values.
     Rows with any missing required value receive NaN in all added columns.
     All computation is vectorised over the valid subset for performance on
     the full catalog (~1.5 M rows).
@@ -130,12 +133,34 @@ def add_orbital_features(df: pd.DataFrame) -> pd.DataFrame:
     result = df.copy()
     for col in ("tisserand_jupiter", "delta_v_km_s", "inclination_penalty"):
         result[col] = np.nan
+    result["orbital_precision_source"] = "sbdb"
 
-    notna = df[list(_REQUIRED_COLUMNS)].notna().all(axis=1)
+    # Build effective a, e, i arrays — prefer Horizons where available
+    a_series = df["a_au"].copy()
+    e_series = df["eccentricity"].copy()
+    i_series = df["inclination_deg"].copy()
 
-    a_raw = df.loc[notna, "a_au"].to_numpy(dtype=float)
-    e_raw = df.loc[notna, "eccentricity"].to_numpy(dtype=float)
-    i_raw = df.loc[notna, "inclination_deg"].to_numpy(dtype=float)
+    has_horizons = (
+        ("a_au_horizons" in df.columns)
+        and ("eccentricity_horizons" in df.columns)
+        and ("inclination_deg_horizons" in df.columns)
+    )
+    if has_horizons:
+        hz_mask = (
+            df["a_au_horizons"].notna()
+            & df["eccentricity_horizons"].notna()
+            & df["inclination_deg_horizons"].notna()
+        )
+        a_series.loc[hz_mask] = df.loc[hz_mask, "a_au_horizons"]
+        e_series.loc[hz_mask] = df.loc[hz_mask, "eccentricity_horizons"]
+        i_series.loc[hz_mask] = df.loc[hz_mask, "inclination_deg_horizons"]
+        result.loc[hz_mask, "orbital_precision_source"] = "horizons"
+
+    notna = a_series.notna() & e_series.notna() & i_series.notna()
+
+    a_raw = a_series.loc[notna].to_numpy(dtype=float)
+    e_raw = e_series.loc[notna].to_numpy(dtype=float)
+    i_raw = i_series.loc[notna].to_numpy(dtype=float)
 
     valid_mask = (
         np.isfinite(a_raw)
@@ -206,6 +231,21 @@ def main() -> int:
 
     df = pd.read_parquet(input_path)
     logger.info("Loaded %d rows", len(df))
+
+    # Merge Horizons elements if available
+    raw_dir = repo_root / "data" / "raw"
+    hz_candidates = sorted(raw_dir.glob("horizons_*.parquet"))
+    if hz_candidates:
+        hz = pd.read_parquet(hz_candidates[-1])
+        logger.info("Loaded %d Horizons records from %s", len(hz), hz_candidates[-1].name)
+        hz_cols = ["spkid"]
+        for c in ("a_au_horizons", "eccentricity_horizons", "inclination_deg_horizons"):
+            if c in hz.columns:
+                hz_cols.append(c)
+        if len(hz_cols) > 1 and "spkid" in df.columns:
+            df = df.merge(hz[hz_cols], on="spkid", how="left")
+    else:
+        logger.info("No Horizons parquet found — using SBDB elements only")
 
     result = add_orbital_features(df)
 

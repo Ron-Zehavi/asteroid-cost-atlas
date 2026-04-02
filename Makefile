@@ -1,20 +1,36 @@
-.PHONY: install pipeline ingest ingest-lcdb clean-data enrich score-orbital score-physical score-composition atlas query lint format typecheck test clean clean-outputs data-info help
+.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas query lint format typecheck test clean clean-outputs data-info help
+
+PYTHON_VERSION := $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
+MIN_PYTHON := 3.11
 
 help:
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-install: ## Install package and dev dependencies
+check-python:
+	@python3 -c "import sys; assert sys.version_info >= (3, 11), f'Python 3.11+ required, got {sys.version}'" \
+		|| (echo "ERROR: Python 3.11+ is required. Current: $(PYTHON_VERSION)" && exit 1)
+
+install: check-python ## Install package and dev dependencies
 	pip install -e ".[dev]"
 
 # Pipeline stages must run in this order:
-#   ingest → ingest-lcdb → clean-data → enrich → score-orbital → score-physical → score-composition → atlas
-pipeline: ingest ingest-lcdb clean-data enrich score-orbital score-physical score-composition atlas ## Run full pipeline end-to-end
+#   ingest → ingest-lcdb → ingest-neowise → ingest-spectral → clean-data → enrich → ingest-horizons → score-orbital → score-physical → score-composition → atlas
+pipeline: ingest ingest-lcdb ingest-neowise ingest-spectral clean-data enrich ingest-horizons score-orbital score-physical score-composition atlas ## Run full pipeline end-to-end
 
 ingest: ## Fetch raw SBDB catalog → data/raw/sbdb_*.csv
 	python -m asteroid_cost_atlas.ingest.ingest_sbdb
 
 ingest-lcdb: ## Fetch LCDB rotation periods → data/raw/lcdb_*.parquet
 	python -m asteroid_cost_atlas.ingest.ingest_lcdb
+
+ingest-neowise: ## Fetch NEOWISE diameters/albedos → data/raw/neowise_*.parquet
+	python -m asteroid_cost_atlas.ingest.ingest_neowise
+
+ingest-spectral: ## Fetch SDSS MOC photometry → data/raw/sdss_moc_*.parquet
+	python -m asteroid_cost_atlas.ingest.ingest_spectral
+
+ingest-horizons: ## Fetch JPL Horizons elements for NEAs → data/raw/horizons_*.parquet
+	python -m asteroid_cost_atlas.ingest.ingest_horizons
 
 clean-data: ## Validate and filter raw CSV → data/processed/sbdb_clean_*.parquet
 	python -m asteroid_cost_atlas.ingest.clean_sbdb

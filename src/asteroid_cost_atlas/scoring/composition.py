@@ -1,45 +1,33 @@
 """
-Composition proxy scoring with meteorite-analog resource model.
+Composition proxy scoring with per-metal meteorite-analog resource model.
 
 Infers asteroid resource class from taxonomy and/or albedo, then assigns
-resource value estimates based on measured meteorite compositions.
+extractable resource estimates based on measured meteorite compositions.
 
 Composition classes
 -------------------
-  C  — carbonaceous: water-rich, low PGMs (CI/CM analogs)
-  S  — silicaceous: moderate metals, trace PGMs (H/L/LL chondrite analogs)
-  M  — metallic: high iron/nickel, significant PGMs (iron meteorite analogs)
-  V  — basaltic: pyroxene/feldspar, minimal resources (HED analogs)
-  U  — unknown: no taxonomy or albedo available — uses population average
+  C  — carbonaceous (CI/CM analogs): water-rich, trace precious metals
+  S  — silicaceous (H/L chondrite): moderate metals, trace PGMs
+  M  — metallic (iron meteorite): high Fe/Ni, significant PGMs
+  V  — basaltic (HED achondrite): minimal resources
+  U  — unknown: population average
 
-Classification priority:
-  1. LCDB/SBDB taxonomy → direct mapping
-  2. Albedo range → probabilistic inference
-  3. Neither available → "U" (unknown)
+Precious metal model
+--------------------
+Individual metal concentrations per class (ppm) from:
+  Lodders, Bergemann & Palme (2025), arXiv:2502.10575
+  Cannon, Gialich & Acain (2023), Planet. Space Sci. 225, 105608
 
-Resource model (per kg of raw asteroid material)
--------------------------------------------------
-Three resource groups are valued separately:
-
-  **Water** — in-space propellant value (H₂+O₂ electrolysis).
-    Extraction yield ~60%. Value $500/kg in cislunar space.
-    Only C-types carry significant water (10–20 wt% for CI analogs).
-
-  **Bulk metals** — iron, nickel, cobalt for in-space construction.
-    Value $50/kg in orbit (vs ~$0.50/kg on Earth surface).
-    All classes carry some iron; M-types are ~91% metal.
-
-  **Precious metals** — PGMs (Pt, Pd, Ir, Os, Ru, Rh) + Au.
-    Earth-return commodity value at spot prices (~$35,000/kg average).
-    Concentrations from Cannon et al. (2023): iron meteorites
-    median 40.8 ppm total PGM; CI chondrites ~3.2 ppm.
+Spot prices (2024–2025 averages) for selective extraction valuation.
+A specimen-return mission extracts only precious metals — each returned
+kg is priced at the refined metal rate, not the bulk rock average.
 
 Sources
 -------
-  Cannon, Gialich & Acain (2023), Planet. Space Sci. 225, 105608
-  Lodders, Bergemann & Palme (2025), arXiv:2502.10575
-  Garenne et al. (2014), Geochim. Cosmochim. Acta 137, 93–112
-  Dunn et al. (2010), Icarus 208, 789–797
+  Cannon+ (2023): PGM in iron meteorites, 50th %ile total = 40.78 ppm
+  Lodders+ (2025): CI chondrite bulk chemistry, PGM+Au = 3.375 ppm
+  Garenne+ (2014): CI/CM/CR water content
+  Dunn+ (2010): H/L/LL chondrite metal fractions
 """
 
 from __future__ import annotations
@@ -53,6 +41,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from asteroid_cost_atlas.ingest.ingest_spectral import classify_from_sdss_colors
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -60,63 +50,75 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _TAXONOMY_MAP: dict[str, str] = {
-    # Carbonaceous
     "C": "C", "B": "C", "F": "C", "G": "C", "D": "C", "T": "C",
     "CB": "C", "CG": "C", "CH": "C", "CX": "C",
-    # Silicaceous
     "S": "S", "K": "S", "L": "S", "A": "S", "Q": "S", "R": "S", "O": "S",
     "SA": "S", "SK": "S", "SL": "S", "SQ": "S", "SR": "S",
     "SE": "S", "SFC": "S",
-    # Metallic / X-complex
     "M": "M", "X": "M", "E": "M", "P": "M", "XC": "M", "XE": "M",
-    # Basaltic
     "V": "V",
 }
 
 # ---------------------------------------------------------------------------
-# Meteorite-analog resource model (Cannon 2023, Lodders+ 2025)
+# Per-metal concentration model (ppm by mass)
 # ---------------------------------------------------------------------------
 
-# Water content (wt%) — CI: Lodders+ 2025; CM: Garenne+ 2014; others: negligible
-_WATER_WT_PCT: dict[str, float] = {
-    "C": 15.0,    # CI/CM average (range 4–20%)
-    "S": 0.0,     # ordinary chondrites — negligible
-    "M": 0.0,     # iron meteorites — none
-    "V": 0.0,     # HED achondrites — negligible
-    "U": 1.5,     # population-weighted estimate
+# Individual precious metal concentrations per composition class
+# CI values: Lodders+ 2025 Table 4
+# Iron values: Cannon+ 2023 (scaled from CI ratios × iron enrichment factor)
+# S/V/U: interpolated from CI and metal fraction ratios
+
+METALS: list[str] = ["platinum", "palladium", "rhodium", "iridium", "osmium", "ruthenium", "gold"]
+
+# Spot prices in $/kg (April 2026 market data)
+# Sources: Kitco (Apr 2, 2026), DailyMetalPrice (Mar 31, 2026)
+# Conversion: $/troy oz × 32.1507 = $/kg
+METAL_SPOT_PRICE: dict[str, float] = {
+    "platinum":   63_300.0,   # $1,969/oz — Kitco Apr 2, 2026
+    "palladium":  47_870.0,   # $1,489/oz — Kitco Apr 2, 2026
+    "rhodium":   299_000.0,   # $9,300/oz — Kitco Apr 2, 2026
+    "iridium":   254_000.0,   # $7,900/oz — DailyMetalPrice Mar 31, 2026
+    "osmium":     12_860.0,   # ~$400/oz — raw commodity estimate
+    "ruthenium":  56_260.0,   # $1,750/oz — DailyMetalPrice Mar 31, 2026
+    "gold":      150_740.0,   # $4,690/oz — Kitco Apr 2, 2026
 }
 
-# Bulk metal (Fe+Ni+Co) content (wt%)
-# CI: Lodders+ 2025; H: Wasson & Kallemeyn 1988; Iron: standard reference
-_METAL_WT_PCT: dict[str, float] = {
-    "C": 19.7,    # CI: 18.5% Fe + 1.1% Ni + 0.05% Co
-    "S": 28.9,    # H-chondrite: 27.1% Fe + 1.7% Ni + 0.08% Co
-    "M": 98.6,    # Iron: 91% Fe + 7% Ni + 0.6% Co
-    "V": 15.0,    # HED: lower total metal
-    "U": 25.0,    # population average
+# Concentration in ppm per composition class
+METAL_PPM: dict[str, dict[str, float]] = {
+    "C": {
+        "platinum": 0.90, "palladium": 0.56, "rhodium": 0.13,
+        "iridium": 0.46, "osmium": 0.49, "ruthenium": 0.68, "gold": 0.15,
+    },
+    "S": {
+        "platinum": 1.20, "palladium": 0.75, "rhodium": 0.17,
+        "iridium": 0.61, "osmium": 0.65, "ruthenium": 0.90, "gold": 0.20,
+    },
+    "M": {
+        "platinum": 15.0, "palladium": 8.0, "rhodium": 2.0,
+        "iridium": 5.0, "osmium": 5.0, "ruthenium": 6.0, "gold": 1.0,
+    },
+    "V": {
+        "platinum": 0.10, "palladium": 0.06, "rhodium": 0.01,
+        "iridium": 0.05, "osmium": 0.05, "ruthenium": 0.07, "gold": 0.02,
+    },
+    "U": {
+        "platinum": 1.50, "palladium": 0.90, "rhodium": 0.20,
+        "iridium": 0.70, "osmium": 0.75, "ruthenium": 1.00, "gold": 0.25,
+    },
 }
 
-# Total PGM+Au concentration (ppm)
-# CI: Lodders+ 2025 Table 4 (sum Ru+Rh+Pd+Os+Ir+Pt+Au = 3.375 ppm)
-# Iron: Cannon+ 2023 Table 2 (50th percentile = 40.78 ppm, excl. Au; add ~1 ppm Au)
-# H-chondrite: scaled from CI by metal fraction ratio
-_PRECIOUS_PPM: dict[str, float] = {
-    "C": 3.4,     # CI: 3.225 PGM + 0.15 Au (Lodders+ 2025)
-    "S": 4.5,     # H-chondrite: higher metal fraction concentrates PGMs slightly
-    "M": 42.0,    # Iron meteorite: 40.78 PGM + ~1 Au (Cannon+ 2023, 50th %ile)
-    "V": 0.5,     # HED: extremely low PGM grades
-    "U": 5.0,     # population estimate
-}
+# Extraction yield for precious metals (refining in space)
+PRECIOUS_EXTRACTION_YIELD = 0.30
 
-# Economic parameters for value calculation
-_WATER_PRICE_PER_KG = 500.0        # $/kg in cislunar space (propellant)
-_WATER_EXTRACTION_YIELD = 0.60     # 60% yield for thermal extraction
-_METAL_PRICE_PER_KG = 50.0         # $/kg in orbit (construction material)
-_METAL_EXTRACTION_YIELD = 0.50     # 50% yield for magnetic/thermal separation
-_PRECIOUS_PRICE_PER_KG = 35_000.0  # $/kg average PGM+Au (Earth-return spot)
-_PRECIOUS_EXTRACTION_YIELD = 0.30  # 30% yield (refining in space is hard)
+# Water and bulk metal parameters (kept for commodity model compatibility)
+_WATER_WT_PCT: dict[str, float] = {"C": 15.0, "S": 0.0, "M": 0.0, "V": 0.0, "U": 1.5}
+_METAL_WT_PCT: dict[str, float] = {"C": 19.7, "S": 28.9, "M": 98.6, "V": 15.0, "U": 25.0}
+_WATER_PRICE_PER_KG = 500.0
+_WATER_EXTRACTION_YIELD = 0.60
+_METAL_PRICE_PER_KG = 50.0
+_METAL_EXTRACTION_YIELD = 0.50
 
-# Albedo thresholds for inference when taxonomy is unavailable
+# Albedo thresholds
 _ALBEDO_LOW = 0.10
 _ALBEDO_MID = 0.20
 _ALBEDO_HIGH = 0.35
@@ -152,36 +154,48 @@ def classify_albedo(albedo: float) -> str:
     return "V"
 
 
+def specimen_value_per_kg(composition_class: str) -> float:
+    """
+    Value of 1 kg of refined precious metal concentrate from this class.
+
+    Weighted by individual metal concentrations and spot prices.
+    This is what a specimen-return mission would earn per kg returned.
+    """
+    c = composition_class if composition_class in METAL_PPM else "U"
+    ppm = METAL_PPM[c]
+    total_ppm = sum(ppm.values())
+    if total_ppm == 0:
+        return 0.0
+    # Weighted average price based on relative concentration
+    weighted_price = sum(
+        (ppm[m] / total_ppm) * METAL_SPOT_PRICE[m] for m in METALS
+    )
+    return round(weighted_price, 2)
+
+
 def resource_value_per_kg(composition_class: str) -> float:
-    """
-    Total estimated resource value per kg of raw asteroid material.
-
-    Sum of water + bulk metals + precious metals, each adjusted for
-    extraction yield and in-space vs Earth-return pricing.
-    """
+    """Total commodity value per kg of raw asteroid material (water + metals + precious)."""
     c = composition_class if composition_class in _WATER_WT_PCT else "U"
-
-    water_val = (_WATER_WT_PCT[c] / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
-    metal_val = (_METAL_WT_PCT[c] / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
-    precious_val = (
-        _PRECIOUS_PPM[c] / 1e6
-    ) * _PRECIOUS_EXTRACTION_YIELD * _PRECIOUS_PRICE_PER_KG
-
-    return round(water_val + metal_val + precious_val, 2)
+    water = (_WATER_WT_PCT[c] / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
+    metals = (_METAL_WT_PCT[c] / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
+    ppm = METAL_PPM.get(c, METAL_PPM["U"])
+    precious = sum(
+        (ppm[m] / 1e6) * PRECIOUS_EXTRACTION_YIELD * METAL_SPOT_PRICE[m]
+        for m in METALS
+    )
+    return round(water + metals + precious, 2)
 
 
 def resource_breakdown(composition_class: str) -> dict[str, float]:
-    """
-    Detailed resource value breakdown per kg for a composition class.
-
-    Returns dict with water_usd, metals_usd, precious_usd, total_usd.
-    """
+    """Detailed commodity value breakdown per kg."""
     c = composition_class if composition_class in _WATER_WT_PCT else "U"
-
     water = (_WATER_WT_PCT[c] / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
     metals = (_METAL_WT_PCT[c] / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
-    precious = (_PRECIOUS_PPM[c] / 1e6) * _PRECIOUS_EXTRACTION_YIELD * _PRECIOUS_PRICE_PER_KG
-
+    ppm = METAL_PPM.get(c, METAL_PPM["U"])
+    precious = sum(
+        (ppm[m] / 1e6) * PRECIOUS_EXTRACTION_YIELD * METAL_SPOT_PRICE[m]
+        for m in METALS
+    )
     return {
         "water_usd_per_kg": round(water, 4),
         "metals_usd_per_kg": round(metals, 4),
@@ -200,21 +214,17 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
     Add composition proxy columns to the asteroid DataFrame.
 
     Added columns:
-      - ``composition_class`` — C/S/M/V/U
-      - ``composition_source`` — "taxonomy", "albedo", or "none"
-      - ``resource_value_usd_per_kg`` — total $/kg (water + metals + precious)
-      - ``water_value_usd_per_kg`` — water contribution to value
-      - ``metals_value_usd_per_kg`` — bulk metals contribution
-      - ``precious_value_usd_per_kg`` — PGM+Au contribution
-
-    Classification priority: taxonomy first, albedo fallback, else unknown.
+      - composition_class, composition_source
+      - resource_value_usd_per_kg, water/metals/precious breakdown
+      - specimen_value_per_kg (refined concentrate spot price)
+      - per-metal extractable kg (requires estimated_mass_kg from economic stage)
     """
     result = df.copy()
     n = len(df)
     comp_class = np.full(n, "U", dtype=object)
     comp_source = np.full(n, "none", dtype=object)
 
-    # Layer 1: taxonomy (highest confidence)
+    # Layer 1: taxonomy
     if "taxonomy" in df.columns:
         tax_vals = df["taxonomy"].values
         has_tax = pd.notna(tax_vals)
@@ -225,7 +235,7 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
             comp_class[positions] = mapped[found]
             comp_source[positions] = "taxonomy"
 
-    # Layer 2: spectral_type fallback
+    # Layer 2: spectral_type
     if "spectral_type" in df.columns:
         spec_vals = df["spectral_type"].values
         still_unknown = comp_class == "U"
@@ -237,7 +247,23 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
             comp_class[positions] = mapped[found]
             comp_source[positions] = "taxonomy"
 
-    # Layer 3: albedo fallback
+    # Layer 3: SDSS color indices
+    if "color_gr" in df.columns and "color_ri" in df.columns:
+        gr_vals = df["color_gr"].to_numpy(dtype=float, na_value=np.nan)
+        ri_vals = df["color_ri"].to_numpy(dtype=float, na_value=np.nan)
+        still_unknown = comp_class == "U"
+        has_colors = np.isfinite(gr_vals) & np.isfinite(ri_vals) & still_unknown
+        if has_colors.any():
+            mapped = np.array([
+                classify_from_sdss_colors(float(gr), float(ri))
+                for gr, ri in zip(gr_vals[has_colors], ri_vals[has_colors])
+            ])
+            found = mapped != "U"
+            positions = np.where(has_colors)[0][found]
+            comp_class[positions] = mapped[found]
+            comp_source[positions] = "sdss_colors"
+
+    # Layer 4: albedo
     if "albedo" in df.columns:
         alb_vals = df["albedo"].to_numpy(dtype=float, na_value=np.nan)
         still_unknown = comp_class == "U"
@@ -252,12 +278,25 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
     result["composition_class"] = comp_class
     result["composition_source"] = comp_source
 
-    # Compute per-resource value breakdown
+    # Commodity breakdown
+    value_map = np.vectorize(resource_value_per_kg)
+    result["resource_value_usd_per_kg"] = value_map(comp_class)
+
     breakdowns = [resource_breakdown(c) for c in comp_class]
-    result["resource_value_usd_per_kg"] = [b["total_usd_per_kg"] for b in breakdowns]
     result["water_value_usd_per_kg"] = [b["water_usd_per_kg"] for b in breakdowns]
     result["metals_value_usd_per_kg"] = [b["metals_usd_per_kg"] for b in breakdowns]
     result["precious_value_usd_per_kg"] = [b["precious_usd_per_kg"] for b in breakdowns]
+
+    # Specimen value per kg (weighted by individual metal prices)
+    specimen_map = np.vectorize(specimen_value_per_kg)
+    result["specimen_value_per_kg"] = specimen_map(comp_class)
+
+    # Per-metal ppm columns (for downstream extractable kg calculation)
+    for metal in METALS:
+        ppm_vals = np.array([
+            METAL_PPM.get(c, METAL_PPM["U"])[metal] for c in comp_class
+        ])
+        result[f"{metal}_ppm"] = ppm_vals
 
     return result
 
@@ -297,24 +336,19 @@ def main() -> int:
     result = add_composition_features(df)
 
     counts = result["composition_class"].value_counts().to_dict()
-    sources = result["composition_source"].value_counts().to_dict()
 
-    # Show resource value summary per class
     for cls in ("C", "S", "M", "V", "U"):
-        bd = resource_breakdown(cls)
-        logger.info(
-            "  %s: $%.2f/kg (water=$%.2f, metals=$%.2f, precious=$%.4f)",
-            cls, bd["total_usd_per_kg"], bd["water_usd_per_kg"],
-            bd["metals_usd_per_kg"], bd["precious_usd_per_kg"],
-        )
+        sv = specimen_value_per_kg(cls)
+        cv = resource_value_per_kg(cls)
+        logger.info("  %s: specimen=$%.0f/kg, commodity=$%.2f/kg", cls, sv, cv)
 
     today = datetime.now(UTC).strftime("%Y%m%d")
     output_path = processed_dir / f"sbdb_composition_{today}.parquet"
     result.to_parquet(output_path, index=False, engine="pyarrow")
 
     logger.info(
-        "Saved %s — classes: %s | sources: %s | %.1fs",
-        output_path.name, counts, sources,
+        "Saved %s — classes: %s | %.1fs",
+        output_path.name, counts,
         time.perf_counter() - started,
     )
 

@@ -13,6 +13,8 @@ from asteroid_cost_atlas.ingest.enrich import (
     add_diameter_estimate,
     h_to_diameter_km,
     merge_lcdb,
+    merge_neowise,
+    merge_sdss,
 )
 
 # ---------------------------------------------------------------------------
@@ -272,6 +274,142 @@ class TestMergeLcdb:
         lcdb_path = self._write_lcdb_parquet(tmp_path)
         result = merge_lcdb(self._sbdb_df(), lcdb_path)
         assert len(result) == 3
+
+
+# ---------------------------------------------------------------------------
+# merge_neowise
+# ---------------------------------------------------------------------------
+
+
+class TestMergeNeowise:
+    def _sbdb_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "spkid": [20000001, 20000002, 20000003],
+                "diameter_km": [939.4, None, None],
+                "albedo": [0.09, None, None],
+            }
+        )
+
+    def _neowise_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "spkid": [20000001, 20000002, 20000004],
+                "neowise_diameter_km": [940.0, 513.0, 522.8],
+                "neowise_albedo": [0.10, 0.16, 0.42],
+            }
+        )
+
+    def _write_neowise_parquet(self, path: Path) -> Path:
+        parquet = path / "neowise.parquet"
+        self._neowise_df().to_parquet(parquet, index=False)
+        return parquet
+
+    def test_fills_diameter_gap(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        row = result[result["spkid"] == 20000002].iloc[0]
+        assert row["diameter_km"] == pytest.approx(513.0)
+
+    def test_preserves_sbdb_diameter(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        row = result[result["spkid"] == 20000001].iloc[0]
+        assert row["diameter_km"] == pytest.approx(939.4)
+
+    def test_fills_albedo_gap(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        row = result[result["spkid"] == 20000002].iloc[0]
+        assert row["albedo"] == pytest.approx(0.16)
+
+    def test_preserves_sbdb_albedo(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        row = result[result["spkid"] == 20000001].iloc[0]
+        assert row["albedo"] == pytest.approx(0.09)
+
+    def test_no_neowise_match_stays_nan(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        row = result[result["spkid"] == 20000003].iloc[0]
+        assert pd.isna(row["diameter_km"])
+        assert pd.isna(row["albedo"])
+
+    def test_does_not_mutate_input(self, tmp_path: Path) -> None:
+        df = self._sbdb_df()
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        _ = merge_neowise(df, neowise_path)
+        assert len(df.columns) == 3
+
+    def test_preserves_row_count(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        assert len(result) == 3
+
+    def test_drops_neowise_working_columns(self, tmp_path: Path) -> None:
+        neowise_path = self._write_neowise_parquet(tmp_path)
+        result = merge_neowise(self._sbdb_df(), neowise_path)
+        assert "neowise_diameter_km" not in result.columns
+        assert "neowise_albedo" not in result.columns
+
+
+# ---------------------------------------------------------------------------
+# merge_sdss
+# ---------------------------------------------------------------------------
+
+
+class TestMergeSdss:
+    def _sbdb_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "spkid": [20000001, 20000002, 20000003],
+                "abs_magnitude": [3.53, 15.0, 22.0],
+            }
+        )
+
+    def _sdss_df(self) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "spkid": [20000001, 20000002, 20000004],
+                "color_gr": [0.45, 0.55, 0.40],
+                "color_ri": [0.05, 0.12, 0.18],
+            }
+        )
+
+    def _write_sdss_parquet(self, path: Path) -> Path:
+        parquet = path / "sdss_moc.parquet"
+        self._sdss_df().to_parquet(parquet, index=False)
+        return parquet
+
+    def test_adds_color_columns(self, tmp_path: Path) -> None:
+        sdss_path = self._write_sdss_parquet(tmp_path)
+        result = merge_sdss(self._sbdb_df(), sdss_path)
+        assert "color_gr" in result.columns
+        assert "color_ri" in result.columns
+
+    def test_matched_row_has_colors(self, tmp_path: Path) -> None:
+        sdss_path = self._write_sdss_parquet(tmp_path)
+        result = merge_sdss(self._sbdb_df(), sdss_path)
+        row = result[result["spkid"] == 20000001].iloc[0]
+        assert row["color_gr"] == pytest.approx(0.45)
+
+    def test_unmatched_row_has_nan(self, tmp_path: Path) -> None:
+        sdss_path = self._write_sdss_parquet(tmp_path)
+        result = merge_sdss(self._sbdb_df(), sdss_path)
+        row = result[result["spkid"] == 20000003].iloc[0]
+        assert pd.isna(row["color_gr"])
+
+    def test_preserves_row_count(self, tmp_path: Path) -> None:
+        sdss_path = self._write_sdss_parquet(tmp_path)
+        result = merge_sdss(self._sbdb_df(), sdss_path)
+        assert len(result) == 3
+
+    def test_does_not_mutate_input(self, tmp_path: Path) -> None:
+        df = self._sbdb_df()
+        sdss_path = self._write_sdss_parquet(tmp_path)
+        _ = merge_sdss(df, sdss_path)
+        assert "color_gr" not in df.columns
 
 
 # ---------------------------------------------------------------------------
