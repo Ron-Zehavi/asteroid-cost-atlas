@@ -74,17 +74,18 @@ class CostAtlasDB:
     @classmethod
     def from_processed_dir(cls, processed_dir: Path) -> CostAtlasDB:
         """
-        Initialise from a directory, auto-selecting the latest
-        ``sbdb_orbital_*.parquet`` file by filename (date-stamped).
+        Initialise from a directory, auto-selecting the latest Parquet.
 
-        Raises FileNotFoundError if the directory contains no matching files.
+        Preference order: atlas_*.parquet > sbdb_orbital_*.parquet.
+        Raises FileNotFoundError if no matching files are found.
         """
-        candidates = sorted(processed_dir.glob("sbdb_orbital_*.parquet"))
-        if not candidates:
-            raise FileNotFoundError(
-                f"No sbdb_orbital_*.parquet files found in {processed_dir}"
-            )
-        return cls(candidates[-1])
+        for pattern in ("atlas_*.parquet", "sbdb_orbital_*.parquet"):
+            candidates = sorted(processed_dir.glob(pattern))
+            if candidates:
+                return cls(candidates[-1])
+        raise FileNotFoundError(
+            f"No atlas_*.parquet or sbdb_orbital_*.parquet files in {processed_dir}"
+        )
 
     # ------------------------------------------------------------------
     # Raw SQL access

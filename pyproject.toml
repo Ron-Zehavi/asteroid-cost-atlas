@@ -57,6 +57,11 @@ dev = [
     "pandas-stubs",
 ]
 
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/asteroid_cost_atlas"]
 

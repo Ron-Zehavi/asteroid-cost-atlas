@@ -6,6 +6,10 @@ sbdb_fields:
   - a
   - e
   - i
+  - om           # longitude of ascending node (degrees)
+  - w            # argument of perihelion (degrees)
+  - ma           # mean anomaly (degrees)
+  - epoch        # epoch of osculating elements (MJD)
   - H            # absolute magnitude — proxy for diameter
   - G            # magnitude slope parameter (default 0.15)
   - diameter

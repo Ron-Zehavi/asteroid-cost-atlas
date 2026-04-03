@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from asteroid_cost_atlas.scoring.composition import (
     add_composition_features,
     classify_albedo,
     classify_taxonomy,
+    composition_confidence,
+    infer_class_probabilities,
     resource_breakdown,
     resource_value_per_kg,
 )
@@ -59,6 +62,66 @@ class TestClassifyAlbedo:
         assert classify_albedo(float("inf")) == "U"
 
 
+class TestInferClassProbabilities:
+    def test_probs_sum_to_one(self) -> None:
+        probs = infer_class_probabilities()
+        assert abs(sum(probs.values()) - 1.0) < 1e-6
+
+    def test_taxonomy_dominates(self) -> None:
+        probs = infer_class_probabilities(taxonomy="C")
+        assert probs["C"] > 0.85
+        assert probs["S"] < 0.10
+
+    def test_spectral_type_strong(self) -> None:
+        probs = infer_class_probabilities(spectral_type="M")
+        assert probs["M"] > 0.20  # lifted from low prior=0.05
+
+    def test_albedo_shifts_m_probability(self) -> None:
+        """Albedo ~0.14 should give nonzero M probability (unlike deterministic)."""
+        probs = infer_class_probabilities(albedo=0.14)
+        assert probs["M"] > 0.05  # key improvement over old system
+
+    def test_low_albedo_favors_c(self) -> None:
+        probs = infer_class_probabilities(albedo=0.05)
+        assert probs["C"] > probs["S"]
+
+    def test_high_albedo_favors_v(self) -> None:
+        probs = infer_class_probabilities(albedo=0.40)
+        # V has low prior (0.05) but high albedo gives strong likelihood
+        assert probs["V"] > 0.05  # meaningfully above prior
+
+    def test_no_evidence_returns_prior(self) -> None:
+        probs = infer_class_probabilities()
+        # Should be close to prior: C=0.35, S=0.45, M=0.05, V=0.05
+        assert probs["S"] > probs["C"] > probs["M"]
+
+    def test_sdss_colors_inform(self) -> None:
+        probs = infer_class_probabilities(color_gr=0.42, color_ri=0.04)
+        assert probs["C"] > 0.30  # C-type centroids
+
+    def test_joint_albedo_and_colors(self) -> None:
+        """Joint evidence should be more certain than either alone."""
+        alb_only = infer_class_probabilities(albedo=0.06)
+        joint = infer_class_probabilities(albedo=0.06, color_gr=0.42, color_ri=0.04)
+        assert composition_confidence(joint) >= composition_confidence(alb_only)
+
+
+class TestCompositionConfidence:
+    def test_certain(self) -> None:
+        probs = {"C": 0.99, "S": 0.003, "M": 0.003, "V": 0.004}
+        assert composition_confidence(probs) > 0.8
+
+    def test_uniform_low(self) -> None:
+        probs = {"C": 0.25, "S": 0.25, "M": 0.25, "V": 0.25}
+        assert composition_confidence(probs) < 0.01
+
+    def test_range(self) -> None:
+        for tax in ("C", "S", "M", "V", None):
+            probs = infer_class_probabilities(taxonomy=tax)
+            c = composition_confidence(probs)
+            assert 0.0 <= c <= 1.0
+
+
 class TestResourceValuePerKg:
     def test_c_type_dominated_by_water(self) -> None:
         bd = resource_breakdown("C")
@@ -71,7 +134,6 @@ class TestResourceValuePerKg:
         assert bd["metals_usd_per_kg"] > bd["precious_usd_per_kg"]
 
     def test_c_type_most_valuable_per_kg(self) -> None:
-        # Water makes C-types the most valuable per kg
         assert resource_value_per_kg("C") > resource_value_per_kg("S")
         assert resource_value_per_kg("C") > resource_value_per_kg("M")
 
@@ -108,11 +170,38 @@ class TestAddCompositionFeatures:
             }
         )
 
-    def test_adds_six_columns(self) -> None:
+    def test_has_probability_columns(self) -> None:
+        result = add_composition_features(self._sample_df())
+        for col in ("prob_C", "prob_S", "prob_M", "prob_V", "composition_confidence"):
+            assert col in result.columns
+
+    def test_probs_sum_to_one(self) -> None:
+        result = add_composition_features(self._sample_df())
+        row_sums = result[["prob_C", "prob_S", "prob_M", "prob_V"]].sum(axis=1)
+        for s in row_sums:
+            assert abs(s - 1.0) < 1e-6
+
+    def test_confidence_in_range(self) -> None:
+        result = add_composition_features(self._sample_df())
+        assert (result["composition_confidence"] >= 0).all()
+        assert (result["composition_confidence"] <= 1).all()
+
+    def test_taxonomy_gives_high_confidence(self) -> None:
+        result = add_composition_features(self._sample_df())
+        # Row 0 has taxonomy="C" — should be very confident
+        assert result.loc[0, "composition_confidence"] > 0.7
+
+    def test_no_evidence_gives_low_confidence(self) -> None:
+        result = add_composition_features(self._sample_df())
+        # Row 4 has no taxonomy, spectral, or albedo — prior only
+        assert result.loc[4, "composition_confidence"] < 0.4
+
+    def test_backward_compatible_columns(self) -> None:
         result = add_composition_features(self._sample_df())
         for col in (
             "composition_class", "composition_source", "resource_value_usd_per_kg",
             "water_value_usd_per_kg", "metals_value_usd_per_kg", "precious_value_usd_per_kg",
+            "specimen_value_per_kg",
         ):
             assert col in result.columns
 
@@ -121,27 +210,14 @@ class TestAddCompositionFeatures:
         assert result.loc[0, "composition_class"] == "C"
         assert result.loc[0, "composition_source"] == "taxonomy"
 
-    def test_spectral_type_fallback(self) -> None:
+    def test_spectral_type_recognized(self) -> None:
         result = add_composition_features(self._sample_df())
         assert result.loc[2, "composition_class"] == "M"
-        assert result.loc[2, "composition_source"] == "taxonomy"
 
-    def test_albedo_fallback(self) -> None:
+    def test_low_albedo_favors_c(self) -> None:
         result = add_composition_features(self._sample_df())
+        # Row 3: albedo=0.04, no taxonomy → should be C
         assert result.loc[3, "composition_class"] == "C"
-        assert result.loc[3, "composition_source"] == "albedo"
-
-    def test_unknown_when_nothing_available(self) -> None:
-        result = add_composition_features(self._sample_df())
-        assert result.loc[4, "composition_class"] == "U"
-        assert result.loc[4, "composition_source"] == "none"
-
-    def test_value_matches_class(self) -> None:
-        result = add_composition_features(self._sample_df())
-        for _, row in result.iterrows():
-            assert row["resource_value_usd_per_kg"] == resource_value_per_kg(
-                row["composition_class"]
-            )
 
     def test_does_not_mutate_input(self) -> None:
         df = self._sample_df()
@@ -152,53 +228,37 @@ class TestAddCompositionFeatures:
         df = self._sample_df()
         assert len(add_composition_features(df)) == len(df)
 
-    def test_water_value_zero_for_non_c(self) -> None:
+    def test_ppm_low_high_columns(self) -> None:
         result = add_composition_features(self._sample_df())
-        # Row 1 is S-type
-        assert result.loc[1, "water_value_usd_per_kg"] == 0.0
+        assert "platinum_ppm" in result.columns
+        assert "platinum_ppm_low" in result.columns
+        assert "platinum_ppm_high" in result.columns
 
-    def test_sdss_colors_classify_unknown(self) -> None:
-        """SDSS color indices should classify asteroids lacking taxonomy/spectral/albedo."""
-        df = pd.DataFrame(
-            {
-                "spkid": [1, 2, 3],
-                "taxonomy": [None, None, None],
-                "spectral_type": [None, None, None],
-                "albedo": [None, None, None],
-                "color_gr": [0.40, 0.55, 0.40],
-                "color_ri": [0.05, 0.12, 0.15],
-            }
-        )
-        result = add_composition_features(df)
-        assert result.loc[0, "composition_class"] == "C"
-        assert result.loc[0, "composition_source"] == "sdss_colors"
-        assert result.loc[1, "composition_class"] == "S"
-        assert result.loc[1, "composition_source"] == "sdss_colors"
-        assert result.loc[2, "composition_class"] == "V"
-        assert result.loc[2, "composition_source"] == "sdss_colors"
+    def test_ppm_low_le_mid_le_high(self) -> None:
+        result = add_composition_features(self._sample_df())
+        for _, row in result.iterrows():
+            assert row["platinum_ppm_low"] <= row["platinum_ppm"] + 1e-6
+            assert row["platinum_ppm"] <= row["platinum_ppm_high"] + 1e-6
 
-    def test_taxonomy_overrides_sdss_colors(self) -> None:
-        """Taxonomy should take priority over SDSS color indices."""
-        df = pd.DataFrame(
-            {
-                "spkid": [1],
-                "taxonomy": ["M"],
-                "color_gr": [0.40],
-                "color_ri": [0.05],
-            }
-        )
+    def test_prob_weighted_values_differ_from_hard(self) -> None:
+        """Prob-weighted resource values should differ from hard-class values
+        for asteroids with ambiguous classification."""
+        df = pd.DataFrame({
+            "spkid": [1],
+            "albedo": [0.14],  # ambiguous: S or M
+        })
         result = add_composition_features(df)
-        assert result.loc[0, "composition_class"] == "M"
-        assert result.loc[0, "composition_source"] == "taxonomy"
+        hard_class = result.loc[0, "composition_class"]
+        hard_value = resource_value_per_kg(hard_class)
+        prob_value = result.loc[0, "resource_value_usd_per_kg"]
+        # Prob-weighted should differ because it mixes S and M contributions
+        assert prob_value != pytest.approx(hard_value, rel=0.01)
 
-    def test_sdss_nan_colors_stay_unknown(self) -> None:
-        """NaN SDSS colors should not produce a classification."""
-        df = pd.DataFrame(
-            {
-                "spkid": [1],
-                "color_gr": [float("nan")],
-                "color_ri": [float("nan")],
-            }
-        )
+    def test_m_type_probability_nonzero_for_moderate_albedo(self) -> None:
+        """Key improvement: moderate albedo should give nonzero M probability."""
+        df = pd.DataFrame({
+            "spkid": [1],
+            "albedo": [0.14],
+        })
         result = add_composition_features(df)
-        assert result.loc[0, "composition_class"] == "U"
+        assert result.loc[0, "prob_M"] > 0.05

@@ -17,6 +17,10 @@ make lint                     # ruff check src tests
 make format                   # ruff format src tests
 make typecheck                # mypy src (strict mode)
 make pipeline                 # Run full pipeline: ingest → clean → enrich → score
+./start.sh                    # Launch web app (backend :8000 + frontend :5173)
+make serve                    # Start FastAPI backend only (uvicorn on :8000)
+make web-dev                  # Start React frontend dev server (Vite on :5173)
+make web-build                # Production build of the React frontend
 ```
 
 ## Architecture
@@ -32,6 +36,7 @@ All stages live under `src/asteroid_cost_atlas/` in three packages:
 
 - **`ingest/`** — data acquisition and cleaning: SBDB fetch with page-level MD5 cache (`ingest_sbdb`), LCDB rotation periods (`ingest_lcdb`), rule-based cleaning (`clean_sbdb`), H→diameter enrichment + LCDB merge (`enrich`)
 - **`scoring/`** — feature engineering: delta-v proxy, Tisserand parameter, inclination penalty (`orbital`); surface gravity, rotation feasibility, regolith likelihood (`physical`)
+- **`api/`** — FastAPI REST API wrapping `CostAtlasDB` for the web frontend
 - **`utils/query.py`** — `CostAtlasDB` class wrapping DuckDB over processed Parquet; supports `top_accessible()`, `nea_candidates()`, `stats()`, and raw SQL
 
 Each module exposes scalar helper functions (for unit testing) and vectorized DataFrame transforms (for production). Each has a `main()` CLI entry point invoked via Makefile or `project.scripts` console entries.
@@ -51,3 +56,4 @@ Each module exposes scalar helper functions (for unit testing) and vectorized Da
 - Structured JSON logging with per-run metadata files in `data/raw/metadata/`
 - Date-stamped output files (e.g. `sbdb_clean_20260330.parquet`)
 - Data flows through `data/raw/` → `data/processed/` as Parquet
+- `web/` contains the React frontend (Vite + TypeScript + Three.js)

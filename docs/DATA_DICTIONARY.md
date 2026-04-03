@@ -25,6 +25,10 @@ Raw catalog from [NASA Small-Body Database API](https://ssd-api.jpl.nasa.gov/doc
 | `orbit_class` | string | see below | Orbit classification code |
 | `moid_au` | float64 | >= 0 | Minimum Orbit Intersection Distance with Earth (AU) |
 | `spectral_type` | string | SMASSII codes or NaN | Spectral taxonomy (sparse) |
+| `long_asc_node_deg` | float64 | [0, 360) or NaN | Longitude of ascending node (degrees). Used for 3D position computation |
+| `arg_perihelion_deg` | float64 | [0, 360) or NaN | Argument of perihelion (degrees). Used for 3D position computation |
+| `mean_anomaly_deg` | float64 | [0, 360) or NaN | Mean anomaly at epoch (degrees). Used for epoch propagation |
+| `epoch_mjd` | float64 | > 0 or NaN | Epoch of orbital elements (Modified Julian Date). Reference time for mean anomaly |
 
 **`orbit_class` values:** `APO` (Apollo), `ATE` (Aten), `AMO` (Amor), `IEO` (Atira), `MBA` (Main Belt), `MCA` (Mars-crosser), `TJN` (Jupiter Trojan), `TNO` (Trans-Neptunian), `CEN` (Centaur), `OMB` (Outer Main Belt), `IMB` (Inner Main Belt), `HYA` (Hyperbolic), `PAA` (Parabolic), `AST` (unclassified).
 

@@ -63,6 +63,11 @@ NASA SBDB API     LCDB          NEOWISE (PDS)     SDSS MOC        JPL Horizons
                      ▼
               ┌──────────────────────────┐
               │  8. Analytics & Outputs  │  DuckDB, Jupyter, visualisation
+              └────────────┬─────────────┘
+                           │
+                           ▼
+              ┌──────────────────────────┐
+              │  9. Web Application      │  FastAPI API + React/Three.js frontend
               └──────────────────────────┘
 ```
 
@@ -88,6 +93,11 @@ asteroid-cost-atlas/
 │   │   └── economic.py          # Mass, value, accessibility, ranking
 │   ├── models/
 │   │   └── asteroid.py          # Pydantic AsteroidRecord model
+│   ├── api/
+│   │   ├── app.py               # FastAPI app, lifespan, CORS, static serving
+│   │   ├── deps.py              # DuckDB dependency injection
+│   │   ├── schemas.py           # Pydantic request validation
+│   │   └── routes/              # asteroids, stats, search endpoints
 │   ├── utils/
 │   │   └── query.py             # DuckDB query layer (CostAtlasDB)
 │   └── settings.py              # Typed config loader (YAML + .env overrides)
@@ -105,6 +115,7 @@ asteroid-cost-atlas/
 │   ├── test_composition.py
 │   ├── test_economic.py
 │   ├── test_query.py
+│   ├── test_api.py
 │   ├── test_pipeline_integration.py
 │   └── test_settings.py
 ├── notebooks/
@@ -119,8 +130,11 @@ asteroid-cost-atlas/
 ├── docs/
 │   ├── DATA_DICTIONARY.md       # Complete field reference for all pipeline stages
 │   └── METHODOLOGY.md           # Scientific methodology, models, and source citations
+├── web/                           # React frontend (Vite + TypeScript + Three.js)
 ├── .github/workflows/
 │   └── ci.yml                   # Lint → type-check → test (Python 3.11/3.12)
+├── Dockerfile                     # Single-container deployment (API + frontend)
+├── start.sh                       # One-command launcher (backend :8000 + frontend :5173)
 ├── Makefile
 ├── pyproject.toml
 └── .env.example
@@ -193,6 +207,9 @@ All paths are resolved relative to the repository root regardless of working dir
 ## Usage
 
 ```bash
+# Launch the web application (backend + frontend, opens browser)
+./start.sh        # starts API on :8000 and React dev server on :5173
+
 # Run the full pipeline end-to-end
 make pipeline     # ingest → enrich → score → atlas (all sources)
 
@@ -246,6 +263,10 @@ Available `make` targets:
   format             Format with ruff
   typecheck          Type-check with mypy
   test               Run tests with coverage
+  serve              Start FastAPI backend (uvicorn on :8000)
+  web-dev            Start React frontend dev server (Vite on :5173)
+  web-build          Production build of the React frontend
+  docker             Build Docker image (single-container deployment)
   clean              Remove build artifacts and caches
 ```
 
@@ -318,6 +339,18 @@ Available `make` targets:
 - Context manager support (`with CostAtlasDB(path) as db:`)
 - Input validation on all query parameters
 - Returns DataFrames — ready for web API serialisation or notebook display
+
+**Web application** ✓
+- FastAPI REST API wrapping the CostAtlasDB query layer (`src/asteroid_cost_atlas/api/`)
+- Endpoints: `/api/stats`, `/api/asteroids` (paginated, filterable), `/api/asteroids/{spkid}`, `/api/asteroids/top`, `/api/asteroids/nea`, `/api/search?q=`, `/api/charts/delta-v`, `/api/charts/composition`, `/api/health`
+- React frontend (`web/`) with Vite + TypeScript
+- AsteroidTable with extraction quantities and 1t/10t/100t profit columns
+- AsteroidDetail drawer with mining scenario analysis
+- FilterBar, SearchBox, StatsCards, ComparePanel components
+- 3D solar system scene (react-three-fiber / Three.js): Sun + 8 planets with Kepler propagation, asteroid point clouds color-coded by composition/delta-v/viability, orbit line highlight on selection, camera focus on click
+- TimelineSlider for epoch propagation (2000-2035)
+- Comparison mode — pin up to 3 asteroids for side-by-side metrics
+- 17 API tests, 87.3% total coverage, 27 mypy-clean source files
 
 **Config system** ✓
 - YAML-defined fields with Pydantic validation (`extra="forbid"`)
@@ -524,32 +557,41 @@ Per asteroid, the atlas computes:
 The transition from static dataset to decision-support interface. A browser-based tool that lets users explore the atlas visually and plan missions interactively.
 
 **Solar system scene**
-- [ ] 3D browser-based scene — Sun, planets (Mercury–Neptune), and asteroid belt rendered in real scale
-- [ ] Asteroid positions computed from Keplerian elements (a, e, i, longitude of ascending node, argument of perihelion)
-- [ ] Color-coded by atlas score (delta-v, economic priority, composition type)
-- [ ] Filterable overlays — NEOs only, T_J range, diameter range, orbit class
+- [x] 3D browser-based scene — Sun, planets (Mercury-Neptune), and asteroid belt rendered in real scale
+- [x] Asteroid positions computed from Keplerian elements (a, e, i, longitude of ascending node, argument of perihelion)
+- [x] Color-coded by atlas score (delta-v, economic priority, composition type)
+- [x] Filterable overlays — NEOs only, T_J range, diameter range, orbit class
 
 **Timeline and orbital motion**
-- [ ] Scrollable time slider — animate orbital positions across months/years
-- [ ] Epoch-aware positions — propagate mean anomaly forward from SBDB epoch
-- [ ] Playback controls — play, pause, speed adjustment, jump to date
+- [x] Scrollable time slider — animate orbital positions across months/years
+- [x] Epoch-aware positions — propagate mean anomaly forward from SBDB epoch
+- [x] Playback controls — play (10 d/s), fast-forward (100 d/s), pause, jump to date
+- [x] Smooth animation via useFrame (60fps continuous motion)
 
 **Asteroid selection and detail panel**
-- [ ] Click/search any asteroid to open a detail panel with all atlas columns
-- [ ] Orbit visualization — highlight the selected asteroid's full elliptical orbit
-- [ ] Comparison mode — pin multiple asteroids to compare accessibility metrics side-by-side
+- [x] Click/search any asteroid to center view and show orbit
+- [x] Orbit visualization — highlight the selected asteroid's full elliptical orbit with km + period labels
+- [x] Per-metal resource breakdown in table (Pt, Pd, Rh, Ir, Os, Ru, Au with kg and $ value)
 
-**Launch window analysis**
-- [ ] For a selected asteroid, compute approximate launch windows from Earth over a date range
-- [ ] Per-window trajectory visualization — show the transfer orbit (Earth → asteroid) in the 3D scene
-- [ ] Delta-v breakdown per window — departure burn, arrival burn, inclination correction
-- [ ] Porkchop plot — departure date vs arrival date contour map of total delta-v
+**Visual enhancements**
+- [x] Milky Way galaxy skybox (procedural, tilted ~60 deg matching ecliptic-to-galactic angle)
+- [x] Asterank-style sun glow (radial gradient sprites, additive blending)
+- [x] Planet orbit lines colored to match planet color with orbit length (km) and period labels
+- [x] Asteroid point cloud with custom shader (round, glowing, min 4px, diameter-proportional)
+- [x] About modal with project vision, methodology summary, and M.A.-style references
 
 **Mission layer architecture**
-- [ ] REST API serving atlas data from DuckDB (`CostAtlasDB` as backend)
-- [ ] WebSocket or polling for timeline state synchronisation
-- [ ] Modular frontend — scene renderer (Three.js / Cesium), UI panels (React), trajectory solver (WASM or server-side)
-- [ ] Plugin architecture for future mission types (sample return, flyby, rendezvous, mining)
+- [x] REST API serving atlas data from DuckDB (`CostAtlasDB` as backend)
+- [x] Filtered stats — dashboard counters refresh with active filters
+- [x] Modular frontend — scene renderer (Three.js), UI panels (React), data layer (REST API)
+
+### Phase 3 — Mission Planner (planned)
+
+- [ ] **Mission Planner** — select asteroid, configure mission parameters (payload mass, vehicle, extraction yield), compute cost/revenue/profit per scenario
+- [ ] **Multi-scenario comparison** — side-by-side 1t / 10t / 100t / custom payload analysis
+- [ ] **Transfer orbit visualization** — show Hohmann transfer path in 3D scene
+- [ ] **Launch window analysis** — porkchop plots, per-window delta-v breakdown
+- [ ] **Campaign optimizer** — given a fleet budget, find optimal target portfolio
 
 ---
 

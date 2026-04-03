@@ -1,4 +1,4 @@
-.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas query lint format typecheck test clean clean-outputs data-info help
+.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas query serve web-dev web-build docker lint format typecheck test clean clean-outputs data-info help
 
 PYTHON_VERSION := $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
 MIN_PYTHON := 3.11
@@ -61,6 +61,21 @@ print('=== Stats ==='); print(db.stats().to_string(index=False)); \
 print('\n=== Top 10 most accessible ==='); \
 print(db.top_accessible(n=10)[['name','delta_v_km_s','tisserand_jupiter','diameter_estimated_km','surface_gravity_m_s2','neo']].to_string(index=False)); \
 db.close()"
+
+serve: ## Start FastAPI dev server on port 8000
+	uvicorn asteroid_cost_atlas.api.app:app --reload --port 8000
+
+web-dev: ## Start React dev server (requires npm install in web/)
+	cd web && npm run dev
+
+web-build: ## Build React production bundle
+	cd web && npm run build
+
+docker: ## Build Docker image
+	docker build -t asteroid-cost-atlas .
+
+docker-run: ## Run Docker container on port 8000
+	docker run -p 8000:8000 asteroid-cost-atlas
 
 lint: ## Lint with ruff
 	ruff check src tests

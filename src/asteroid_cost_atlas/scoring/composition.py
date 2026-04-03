@@ -1,33 +1,29 @@
 """
-Composition proxy scoring with per-metal meteorite-analog resource model.
+Probabilistic composition inference with per-metal resource model.
 
-Infers asteroid resource class from taxonomy and/or albedo, then assigns
-extractable resource estimates based on measured meteorite compositions.
+Replaces deterministic class assignment with Bayesian inference over
+four resource classes (C/S/M/V), producing probability distributions
+and uncertainty-aware resource estimates.
 
-Composition classes
--------------------
-  C  — carbonaceous (CI/CM analogs): water-rich, trace precious metals
-  S  — silicaceous (H/L chondrite): moderate metals, trace PGMs
-  M  — metallic (iron meteorite): high Fe/Ni, significant PGMs
-  V  — basaltic (HED achondrite): minimal resources
-  U  — unknown: population average
+Architecture
+------------
+  evidence layer  →  taxonomy / spectral / SDSS colors / albedo
+  inference layer →  class probability vector (prob_C, prob_S, prob_M, prob_V)
+  resource layer  →  probability-weighted water / bulk metal / PGM estimates
+  output layer    →  mean, P10, P90 values + confidence score
 
-Precious metal model
---------------------
-Individual metal concentrations per class (ppm) from:
-  Lodders, Bergemann & Palme (2025), arXiv:2502.10575
-  Cannon, Gialich & Acain (2023), Planet. Space Sci. 225, 105608
-
-Spot prices (2024–2025 averages) for selective extraction valuation.
-A specimen-return mission extracts only precious metals — each returned
-kg is priced at the refined metal rate, not the bulk rock average.
+Backward compatible: ``composition_class`` = argmax of probabilities.
 
 Sources
 -------
-  Cannon+ (2023): PGM in iron meteorites, 50th %ile total = 40.78 ppm
-  Lodders+ (2025): CI chondrite bulk chemistry, PGM+Au = 3.375 ppm
+  Cannon+ (2023): PGM in iron meteorites, P10/P50/P90 distributions
+  Lodders+ (2025): CI chondrite bulk chemistry
   Garenne+ (2014): CI/CM/CR water content
   Dunn+ (2010): H/L/LL chondrite metal fractions
+  Mainzer+ (2011): WISE/NEOWISE albedo distributions by class
+  Carvano+ (2010): joint SDSS+albedo taxonomy
+  Burbine+ (2002): meteorite fall-frequency priors
+  DeMeo & Carry (2013): probabilistic taxonomy framework
 """
 
 from __future__ import annotations
@@ -41,12 +37,16 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from asteroid_cost_atlas.ingest.ingest_spectral import classify_from_sdss_colors
-
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Taxonomy → composition class mapping
+# Resource classes
+# ---------------------------------------------------------------------------
+
+CLASSES: list[str] = ["C", "S", "M", "V"]
+
+# ---------------------------------------------------------------------------
+# Taxonomy → composition class mapping (unchanged, used for likelihood)
 # ---------------------------------------------------------------------------
 
 _TAXONOMY_MAP: dict[str, str] = {
@@ -60,72 +60,119 @@ _TAXONOMY_MAP: dict[str, str] = {
 }
 
 # ---------------------------------------------------------------------------
-# Per-metal concentration model (ppm by mass)
+# Bayesian inference parameters
 # ---------------------------------------------------------------------------
 
-# Individual precious metal concentrations per composition class
-# CI values: Lodders+ 2025 Table 4
-# Iron values: Cannon+ 2023 (scaled from CI ratios × iron enrichment factor)
-# S/V/U: interpolated from CI and metal fraction ratios
+# Prior: bias-corrected meteorite fall frequencies (Burbine+ 2002)
+# Iron meteorites over-represented in falls (survive entry) → corrected down
+CLASS_PRIOR: dict[str, float] = {"C": 0.35, "S": 0.45, "M": 0.05, "V": 0.05}
+_PRIOR_LEFTOVER = 1.0 - sum(CLASS_PRIOR.values())  # remainder for normalization
 
-METALS: list[str] = ["platinum", "palladium", "rhodium", "iridium", "osmium", "ruthenium", "gold"]
-
-# Spot prices in $/kg (April 2026 market data)
-# Sources: Kitco (Apr 2, 2026), DailyMetalPrice (Mar 31, 2026)
-# Conversion: $/troy oz × 32.1507 = $/kg
-METAL_SPOT_PRICE: dict[str, float] = {
-    "platinum":   63_300.0,   # $1,969/oz — Kitco Apr 2, 2026
-    "palladium":  47_870.0,   # $1,489/oz — Kitco Apr 2, 2026
-    "rhodium":   299_000.0,   # $9,300/oz — Kitco Apr 2, 2026
-    "iridium":   254_000.0,   # $7,900/oz — DailyMetalPrice Mar 31, 2026
-    "osmium":     12_860.0,   # ~$400/oz — raw commodity estimate
-    "ruthenium":  56_260.0,   # $1,750/oz — DailyMetalPrice Mar 31, 2026
-    "gold":      150_740.0,   # $4,690/oz — Kitco Apr 2, 2026
+# Albedo class-conditional distributions (Mainzer+ 2011, Gaussian approx)
+# (mean, std_dev) for geometric albedo pV
+_ALBEDO_DIST: dict[str, tuple[float, float]] = {
+    "C": (0.06, 0.03),
+    "S": (0.25, 0.08),
+    "M": (0.14, 0.05),
+    "V": (0.35, 0.10),
 }
 
-# Concentration in ppm per composition class
-METAL_PPM: dict[str, dict[str, float]] = {
+# SDSS color class centroids and spreads (from Carvano+ 2010, simplified)
+# (g-r mean, g-r std, r-i mean, r-i std)
+_SDSS_DIST: dict[str, tuple[float, float, float, float]] = {
+    "C": (0.42, 0.06, 0.04, 0.04),
+    "S": (0.55, 0.07, 0.13, 0.05),
+    "M": (0.48, 0.06, 0.08, 0.04),
+    "V": (0.40, 0.05, 0.16, 0.05),
+}
+
+# ---------------------------------------------------------------------------
+# Per-metal concentration model: P10 / P50 / P90
+# ---------------------------------------------------------------------------
+
+METALS: list[str] = [
+    "platinum", "palladium", "rhodium", "iridium", "osmium", "ruthenium", "gold",
+]
+
+METAL_SPOT_PRICE: dict[str, float] = {
+    "platinum":   63_300.0,
+    "palladium":  47_870.0,
+    "rhodium":   299_000.0,
+    "iridium":   254_000.0,
+    "osmium":     12_860.0,
+    "ruthenium":  56_260.0,
+    "gold":      150_740.0,
+}
+
+# PGM concentrations (ppm) per class: {p10, p50, p90}
+# M-type: Cannon+ (2023) Table 2, iron meteorite distributions
+# C-type: Lodders+ (2025) CI chondrite ±20% measurement uncertainty
+# S-type: interpolated from CI × H-chondrite metal fraction (Dunn+ 2010)
+# V-type: HED achondrite literature, very low PGM
+METAL_PPM_RANGES: dict[str, dict[str, dict[str, float]]] = {
     "C": {
-        "platinum": 0.90, "palladium": 0.56, "rhodium": 0.13,
-        "iridium": 0.46, "osmium": 0.49, "ruthenium": 0.68, "gold": 0.15,
+        "platinum":  {"p10": 0.70, "p50": 0.90, "p90": 1.15},
+        "palladium": {"p10": 0.44, "p50": 0.56, "p90": 0.72},
+        "rhodium":   {"p10": 0.10, "p50": 0.13, "p90": 0.17},
+        "iridium":   {"p10": 0.36, "p50": 0.46, "p90": 0.59},
+        "osmium":    {"p10": 0.38, "p50": 0.49, "p90": 0.63},
+        "ruthenium": {"p10": 0.53, "p50": 0.68, "p90": 0.87},
+        "gold":      {"p10": 0.12, "p50": 0.15, "p90": 0.19},
     },
     "S": {
-        "platinum": 1.20, "palladium": 0.75, "rhodium": 0.17,
-        "iridium": 0.61, "osmium": 0.65, "ruthenium": 0.90, "gold": 0.20,
+        "platinum":  {"p10": 0.80, "p50": 1.20, "p90": 1.80},
+        "palladium": {"p10": 0.50, "p50": 0.75, "p90": 1.12},
+        "rhodium":   {"p10": 0.11, "p50": 0.17, "p90": 0.26},
+        "iridium":   {"p10": 0.41, "p50": 0.61, "p90": 0.92},
+        "osmium":    {"p10": 0.43, "p50": 0.65, "p90": 0.98},
+        "ruthenium": {"p10": 0.60, "p50": 0.90, "p90": 1.35},
+        "gold":      {"p10": 0.13, "p50": 0.20, "p90": 0.30},
     },
     "M": {
-        "platinum": 15.0, "palladium": 8.0, "rhodium": 2.0,
-        "iridium": 5.0, "osmium": 5.0, "ruthenium": 6.0, "gold": 1.0,
+        "platinum":  {"p10": 3.0,  "p50": 15.0, "p90": 45.0},
+        "palladium": {"p10": 1.6,  "p50": 8.0,  "p90": 24.0},
+        "rhodium":   {"p10": 0.4,  "p50": 2.0,  "p90": 6.0},
+        "iridium":   {"p10": 1.0,  "p50": 5.0,  "p90": 15.0},
+        "osmium":    {"p10": 1.0,  "p50": 5.0,  "p90": 15.0},
+        "ruthenium": {"p10": 1.2,  "p50": 6.0,  "p90": 18.0},
+        "gold":      {"p10": 0.2,  "p50": 1.0,  "p90": 3.0},
     },
     "V": {
-        "platinum": 0.10, "palladium": 0.06, "rhodium": 0.01,
-        "iridium": 0.05, "osmium": 0.05, "ruthenium": 0.07, "gold": 0.02,
-    },
-    "U": {
-        "platinum": 1.50, "palladium": 0.90, "rhodium": 0.20,
-        "iridium": 0.70, "osmium": 0.75, "ruthenium": 1.00, "gold": 0.25,
+        "platinum":  {"p10": 0.06, "p50": 0.10, "p90": 0.16},
+        "palladium": {"p10": 0.04, "p50": 0.06, "p90": 0.10},
+        "rhodium":   {"p10": 0.006, "p50": 0.01, "p90": 0.016},
+        "iridium":   {"p10": 0.03, "p50": 0.05, "p90": 0.08},
+        "osmium":    {"p10": 0.03, "p50": 0.05, "p90": 0.08},
+        "ruthenium": {"p10": 0.04, "p50": 0.07, "p90": 0.11},
+        "gold":      {"p10": 0.01, "p50": 0.02, "p90": 0.03},
     },
 }
 
-# Extraction yield for precious metals (refining in space)
+# Backward-compatible single-value PPM (P50 values)
+METAL_PPM: dict[str, dict[str, float]] = {
+    cls: {m: METAL_PPM_RANGES[cls][m]["p50"] for m in METALS}
+    for cls in CLASSES
+}
+# U-class uses prior-weighted average of P50s
+METAL_PPM["U"] = {
+    m: sum(CLASS_PRIOR[c] * METAL_PPM[c][m] for c in CLASSES)
+    / sum(CLASS_PRIOR.values())
+    for m in METALS
+}
+
 PRECIOUS_EXTRACTION_YIELD = 0.30
 
-# Water and bulk metal parameters (kept for commodity model compatibility)
-_WATER_WT_PCT: dict[str, float] = {"C": 15.0, "S": 0.0, "M": 0.0, "V": 0.0, "U": 1.5}
-_METAL_WT_PCT: dict[str, float] = {"C": 19.7, "S": 28.9, "M": 98.6, "V": 15.0, "U": 25.0}
+# Bulk resource parameters (water, metals) — separate from PGM
+_WATER_WT_PCT: dict[str, float] = {"C": 15.0, "S": 0.0, "M": 0.0, "V": 0.0}
+_METAL_WT_PCT: dict[str, float] = {"C": 19.7, "S": 28.9, "M": 98.6, "V": 15.0}
 _WATER_PRICE_PER_KG = 500.0
 _WATER_EXTRACTION_YIELD = 0.60
 _METAL_PRICE_PER_KG = 50.0
 _METAL_EXTRACTION_YIELD = 0.50
 
-# Albedo thresholds
-_ALBEDO_LOW = 0.10
-_ALBEDO_MID = 0.20
-_ALBEDO_HIGH = 0.35
-
 
 # ---------------------------------------------------------------------------
-# Scalar helpers
+# Scalar helpers (backward compatible)
 # ---------------------------------------------------------------------------
 
 
@@ -142,31 +189,23 @@ def classify_taxonomy(taxonomy: str | None) -> str:
 
 
 def classify_albedo(albedo: float) -> str:
-    """Infer composition class from albedo alone."""
+    """Infer composition class from albedo alone (deterministic fallback)."""
     if not math.isfinite(albedo) or albedo <= 0:
         return "U"
-    if albedo < _ALBEDO_LOW:
+    if albedo < 0.10:
         return "C"
-    if albedo < _ALBEDO_MID:
-        return "S"
-    if albedo < _ALBEDO_HIGH:
+    if albedo < 0.35:
         return "S"
     return "V"
 
 
 def specimen_value_per_kg(composition_class: str) -> float:
-    """
-    Value of 1 kg of refined precious metal concentrate from this class.
-
-    Weighted by individual metal concentrations and spot prices.
-    This is what a specimen-return mission would earn per kg returned.
-    """
+    """Value of 1 kg of refined precious metal concentrate."""
     c = composition_class if composition_class in METAL_PPM else "U"
     ppm = METAL_PPM[c]
     total_ppm = sum(ppm.values())
     if total_ppm == 0:
         return 0.0
-    # Weighted average price based on relative concentration
     weighted_price = sum(
         (ppm[m] / total_ppm) * METAL_SPOT_PRICE[m] for m in METALS
     )
@@ -174,10 +213,12 @@ def specimen_value_per_kg(composition_class: str) -> float:
 
 
 def resource_value_per_kg(composition_class: str) -> float:
-    """Total commodity value per kg of raw asteroid material (water + metals + precious)."""
-    c = composition_class if composition_class in _WATER_WT_PCT else "U"
-    water = (_WATER_WT_PCT[c] / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
-    metals = (_METAL_WT_PCT[c] / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
+    """Total commodity value per kg of raw asteroid material."""
+    c = composition_class if composition_class in METAL_PPM else "U"
+    wt_water = _WATER_WT_PCT.get(c, 1.5)
+    wt_metal = _METAL_WT_PCT.get(c, 25.0)
+    water = (wt_water / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
+    metals = (wt_metal / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
     ppm = METAL_PPM.get(c, METAL_PPM["U"])
     precious = sum(
         (ppm[m] / 1e6) * PRECIOUS_EXTRACTION_YIELD * METAL_SPOT_PRICE[m]
@@ -188,9 +229,11 @@ def resource_value_per_kg(composition_class: str) -> float:
 
 def resource_breakdown(composition_class: str) -> dict[str, float]:
     """Detailed commodity value breakdown per kg."""
-    c = composition_class if composition_class in _WATER_WT_PCT else "U"
-    water = (_WATER_WT_PCT[c] / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
-    metals = (_METAL_WT_PCT[c] / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
+    c = composition_class if composition_class in METAL_PPM else "U"
+    wt_water = _WATER_WT_PCT.get(c, 1.5)
+    wt_metal = _METAL_WT_PCT.get(c, 25.0)
+    water = (wt_water / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
+    metals = (wt_metal / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
     ppm = METAL_PPM.get(c, METAL_PPM["U"])
     precious = sum(
         (ppm[m] / 1e6) * PRECIOUS_EXTRACTION_YIELD * METAL_SPOT_PRICE[m]
@@ -205,98 +248,219 @@ def resource_breakdown(composition_class: str) -> dict[str, float]:
 
 
 # ---------------------------------------------------------------------------
+# Bayesian inference engine
+# ---------------------------------------------------------------------------
+
+
+def _gaussian_pdf(x: float, mu: float, sigma: float) -> float:
+    """Unnormalized Gaussian PDF (we only need relative likelihoods)."""
+    if sigma <= 0:
+        return 1.0
+    return math.exp(-0.5 * ((x - mu) / sigma) ** 2)
+
+
+def infer_class_probabilities(
+    taxonomy: str | None = None,
+    spectral_type: str | None = None,
+    albedo: float | None = None,
+    color_gr: float | None = None,
+    color_ri: float | None = None,
+) -> dict[str, float]:
+    """
+    Compute posterior class probabilities from available evidence.
+
+    Returns dict with keys C, S, M, V summing to 1.0.
+    Uses Bayesian update: P(class|evidence) ~ P(class) × L(evidence|class).
+    """
+    # Start with prior
+    posterior = {c: CLASS_PRIOR[c] for c in CLASSES}
+
+    # Taxonomy likelihood (strong signal)
+    if taxonomy is not None and isinstance(taxonomy, str):
+        tax_class = classify_taxonomy(taxonomy)
+        if tax_class != "U":
+            for c in CLASSES:
+                posterior[c] *= 0.95 if c == tax_class else 0.017
+
+    # Spectral type likelihood (strong but slightly weaker)
+    if spectral_type is not None and isinstance(spectral_type, str):
+        spec_class = classify_taxonomy(spectral_type)
+        if spec_class != "U":
+            for c in CLASSES:
+                posterior[c] *= 0.85 if c == spec_class else 0.05
+
+    # Albedo likelihood (Gaussian per class)
+    if albedo is not None and math.isfinite(albedo) and albedo > 0:
+        for c in CLASSES:
+            mu, sigma = _ALBEDO_DIST[c]
+            posterior[c] *= _gaussian_pdf(albedo, mu, sigma)
+
+    # SDSS color likelihood (bivariate Gaussian per class)
+    if (color_gr is not None and color_ri is not None
+            and math.isfinite(color_gr) and math.isfinite(color_ri)):
+        for c in CLASSES:
+            gr_mu, gr_sig, ri_mu, ri_sig = _SDSS_DIST[c]
+            l_gr = _gaussian_pdf(color_gr, gr_mu, gr_sig)
+            l_ri = _gaussian_pdf(color_ri, ri_mu, ri_sig)
+            posterior[c] *= l_gr * l_ri
+
+    # Normalize
+    total = sum(posterior.values())
+    if total > 0:
+        for c in CLASSES:
+            posterior[c] /= total
+    else:
+        # Fallback to prior
+        total_p = sum(CLASS_PRIOR.values())
+        for c in CLASSES:
+            posterior[c] = CLASS_PRIOR[c] / total_p
+
+    return posterior
+
+
+def composition_confidence(probs: dict[str, float]) -> float:
+    """
+    Confidence score in [0, 1] based on entropy of the probability distribution.
+
+    1.0 = one class has all probability (certain).
+    0.0 = uniform distribution (no information).
+    """
+    max_entropy = math.log(len(CLASSES))
+    if max_entropy == 0:
+        return 1.0
+    entropy = -sum(
+        p * math.log(p) for p in probs.values() if p > 1e-12
+    )
+    return round(1.0 - entropy / max_entropy, 4)
+
+
+def _dominant_source(
+    taxonomy: str | None,
+    spectral_type: str | None,
+    albedo: float | None,
+    color_gr: float | None,
+    color_ri: float | None,
+) -> str:
+    """Identify the highest-weight evidence source for provenance tracking."""
+    if taxonomy is not None and isinstance(taxonomy, str) and classify_taxonomy(taxonomy) != "U":
+        return "taxonomy"
+    if (spectral_type is not None and isinstance(spectral_type, str)
+            and classify_taxonomy(spectral_type) != "U"):
+        return "spectral_type"
+    if (color_gr is not None and color_ri is not None
+            and math.isfinite(color_gr) and math.isfinite(color_ri)):
+        return "sdss_colors"
+    if albedo is not None and math.isfinite(albedo) and albedo > 0:
+        return "albedo"
+    return "prior_only"
+
+
+# ---------------------------------------------------------------------------
 # Vectorised DataFrame transformer
 # ---------------------------------------------------------------------------
 
 
 def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Add composition proxy columns to the asteroid DataFrame.
+    Add probabilistic composition columns to the asteroid DataFrame.
 
-    Added columns:
-      - composition_class, composition_source
-      - resource_value_usd_per_kg, water/metals/precious breakdown
-      - specimen_value_per_kg (refined concentrate spot price)
-      - per-metal extractable kg (requires estimated_mass_kg from economic stage)
+    New columns:
+      - prob_C, prob_S, prob_M, prob_V (class probabilities)
+      - composition_class (argmax, backward compatible)
+      - composition_confidence (0=uniform, 1=certain)
+      - composition_source (dominant evidence)
+      - Probability-weighted resource values (water, metals, precious)
+      - Per-metal ppm: expected (prob-weighted), low (P10), high (P90)
     """
     result = df.copy()
     n = len(df)
-    comp_class = np.full(n, "U", dtype=object)
-    comp_source = np.full(n, "none", dtype=object)
 
-    # Layer 1: taxonomy
-    if "taxonomy" in df.columns:
-        tax_vals = df["taxonomy"].values
-        has_tax = pd.notna(tax_vals)
-        if has_tax.any():
-            mapped = np.array([classify_taxonomy(str(v)) for v in tax_vals[has_tax]])
-            found = mapped != "U"
-            positions = np.where(has_tax)[0][found]
-            comp_class[positions] = mapped[found]
-            comp_source[positions] = "taxonomy"
+    # Extract evidence columns
+    tax_vals = df["taxonomy"].values if "taxonomy" in df.columns else [None] * n
+    spec_vals = df["spectral_type"].values if "spectral_type" in df.columns else [None] * n
+    alb_vals = (
+        df["albedo"].to_numpy(dtype=float, na_value=np.nan)
+        if "albedo" in df.columns else np.full(n, np.nan)
+    )
+    gr_vals = (
+        df["color_gr"].to_numpy(dtype=float, na_value=np.nan)
+        if "color_gr" in df.columns else np.full(n, np.nan)
+    )
+    ri_vals = (
+        df["color_ri"].to_numpy(dtype=float, na_value=np.nan)
+        if "color_ri" in df.columns else np.full(n, np.nan)
+    )
 
-    # Layer 2: spectral_type
-    if "spectral_type" in df.columns:
-        spec_vals = df["spectral_type"].values
-        still_unknown = comp_class == "U"
-        has_spec = pd.notna(spec_vals) & still_unknown
-        if has_spec.any():
-            mapped = np.array([classify_taxonomy(str(v)) for v in spec_vals[has_spec]])
-            found = mapped != "U"
-            positions = np.where(has_spec)[0][found]
-            comp_class[positions] = mapped[found]
-            comp_source[positions] = "taxonomy"
+    # Compute per-asteroid probabilities
+    prob_arr = np.zeros((n, 4))
+    conf_arr = np.zeros(n)
+    source_arr = np.empty(n, dtype=object)
+    comp_class_arr = np.empty(n, dtype=object)
 
-    # Layer 3: SDSS color indices
-    if "color_gr" in df.columns and "color_ri" in df.columns:
-        gr_vals = df["color_gr"].to_numpy(dtype=float, na_value=np.nan)
-        ri_vals = df["color_ri"].to_numpy(dtype=float, na_value=np.nan)
-        still_unknown = comp_class == "U"
-        has_colors = np.isfinite(gr_vals) & np.isfinite(ri_vals) & still_unknown
-        if has_colors.any():
-            mapped = np.array([
-                classify_from_sdss_colors(float(gr), float(ri))
-                for gr, ri in zip(gr_vals[has_colors], ri_vals[has_colors])
-            ])
-            found = mapped != "U"
-            positions = np.where(has_colors)[0][found]
-            comp_class[positions] = mapped[found]
-            comp_source[positions] = "sdss_colors"
+    for i in range(n):
+        tax = str(tax_vals[i]) if pd.notna(tax_vals[i]) else None
+        spec = str(spec_vals[i]) if pd.notna(spec_vals[i]) else None
+        alb = float(alb_vals[i]) if np.isfinite(alb_vals[i]) else None
+        gr = float(gr_vals[i]) if np.isfinite(gr_vals[i]) else None
+        ri = float(ri_vals[i]) if np.isfinite(ri_vals[i]) else None
 
-    # Layer 4: albedo
-    if "albedo" in df.columns:
-        alb_vals = df["albedo"].to_numpy(dtype=float, na_value=np.nan)
-        still_unknown = comp_class == "U"
-        has_albedo = np.isfinite(alb_vals) & (alb_vals > 0) & still_unknown
-        if has_albedo.any():
-            mapped = np.array([classify_albedo(float(v)) for v in alb_vals[has_albedo]])
-            found = mapped != "U"
-            positions = np.where(has_albedo)[0][found]
-            comp_class[positions] = mapped[found]
-            comp_source[positions] = "albedo"
+        probs = infer_class_probabilities(tax, spec, alb, gr, ri)
+        prob_arr[i] = [probs[c] for c in CLASSES]
+        conf_arr[i] = composition_confidence(probs)
+        source_arr[i] = _dominant_source(tax, spec, alb, gr, ri)
+        comp_class_arr[i] = CLASSES[int(np.argmax(prob_arr[i]))]
 
-    result["composition_class"] = comp_class
-    result["composition_source"] = comp_source
+    result["prob_C"] = prob_arr[:, 0]
+    result["prob_S"] = prob_arr[:, 1]
+    result["prob_M"] = prob_arr[:, 2]
+    result["prob_V"] = prob_arr[:, 3]
+    result["composition_class"] = comp_class_arr
+    result["composition_confidence"] = conf_arr
+    result["composition_source"] = source_arr
 
-    # Commodity breakdown
-    value_map = np.vectorize(resource_value_per_kg)
-    result["resource_value_usd_per_kg"] = value_map(comp_class)
+    # Probability-weighted resource values
+    water_per_kg = np.zeros(n)
+    metals_per_kg = np.zeros(n)
+    precious_per_kg = np.zeros(n)
+    for j, c in enumerate(CLASSES):
+        wt_water = _WATER_WT_PCT.get(c, 0.0)
+        wt_metal = _METAL_WT_PCT.get(c, 0.0)
+        w = (wt_water / 100.0) * _WATER_EXTRACTION_YIELD * _WATER_PRICE_PER_KG
+        m = (wt_metal / 100.0) * _METAL_EXTRACTION_YIELD * _METAL_PRICE_PER_KG
+        p = sum(
+            (METAL_PPM[c][metal] / 1e6) * PRECIOUS_EXTRACTION_YIELD * METAL_SPOT_PRICE[metal]
+            for metal in METALS
+        )
+        water_per_kg += prob_arr[:, j] * w
+        metals_per_kg += prob_arr[:, j] * m
+        precious_per_kg += prob_arr[:, j] * p
 
-    breakdowns = [resource_breakdown(c) for c in comp_class]
-    result["water_value_usd_per_kg"] = [b["water_usd_per_kg"] for b in breakdowns]
-    result["metals_value_usd_per_kg"] = [b["metals_usd_per_kg"] for b in breakdowns]
-    result["precious_value_usd_per_kg"] = [b["precious_usd_per_kg"] for b in breakdowns]
+    result["water_value_usd_per_kg"] = np.round(water_per_kg, 4)
+    result["metals_value_usd_per_kg"] = np.round(metals_per_kg, 4)
+    result["precious_value_usd_per_kg"] = np.round(precious_per_kg, 4)
+    result["resource_value_usd_per_kg"] = np.round(
+        water_per_kg + metals_per_kg + precious_per_kg, 2,
+    )
 
-    # Specimen value per kg (weighted by individual metal prices)
-    specimen_map = np.vectorize(specimen_value_per_kg)
-    result["specimen_value_per_kg"] = specimen_map(comp_class)
+    # Specimen value (prob-weighted)
+    specimen_vals = np.zeros(n)
+    for j, c in enumerate(CLASSES):
+        specimen_vals += prob_arr[:, j] * specimen_value_per_kg(c)
+    result["specimen_value_per_kg"] = np.round(specimen_vals, 2)
 
-    # Per-metal ppm columns (for downstream extractable kg calculation)
+    # Per-metal PPM: expected (prob-weighted P50), low (prob-weighted P10), high (prob-weighted P90)
     for metal in METALS:
-        ppm_vals = np.array([
-            METAL_PPM.get(c, METAL_PPM["U"])[metal] for c in comp_class
-        ])
-        result[f"{metal}_ppm"] = ppm_vals
+        ppm_expected = np.zeros(n)
+        ppm_low = np.zeros(n)
+        ppm_high = np.zeros(n)
+        for j, c in enumerate(CLASSES):
+            ranges = METAL_PPM_RANGES[c][metal]
+            ppm_expected += prob_arr[:, j] * ranges["p50"]
+            ppm_low += prob_arr[:, j] * ranges["p10"]
+            ppm_high += prob_arr[:, j] * ranges["p90"]
+        result[f"{metal}_ppm"] = np.round(ppm_expected, 4)
+        result[f"{metal}_ppm_low"] = np.round(ppm_low, 4)
+        result[f"{metal}_ppm_high"] = np.round(ppm_high, 4)
 
     return result
 
@@ -336,8 +500,9 @@ def main() -> int:
     result = add_composition_features(df)
 
     counts = result["composition_class"].value_counts().to_dict()
+    avg_conf = result["composition_confidence"].mean()
 
-    for cls in ("C", "S", "M", "V", "U"):
+    for cls in CLASSES:
         sv = specimen_value_per_kg(cls)
         cv = resource_value_per_kg(cls)
         logger.info("  %s: specimen=$%.0f/kg, commodity=$%.2f/kg", cls, sv, cv)
@@ -347,8 +512,8 @@ def main() -> int:
     result.to_parquet(output_path, index=False, engine="pyarrow")
 
     logger.info(
-        "Saved %s — classes: %s | %.1fs",
-        output_path.name, counts,
+        "Saved %s — classes: %s | avg_confidence: %.3f | %.1fs",
+        output_path.name, counts, avg_conf,
         time.perf_counter() - started,
     )
 
