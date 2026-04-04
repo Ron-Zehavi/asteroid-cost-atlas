@@ -10,12 +10,15 @@ Asteroid Cost Atlas — a data-engineering pipeline that fetches NASA's Small-Bo
 
 ```bash
 pip install -e ".[dev]"       # Install for development
+pip install -e ".[ml]"        # Install with scikit-learn for ML classifier
 make test                     # Run pytest with 85% coverage gate
 pytest tests/test_orbital.py  # Run a single test module
 pytest -k test_tisserand      # Run a single test by name
 make lint                     # ruff check src tests
 make format                   # ruff format src tests
 make typecheck                # mypy src (strict mode)
+make ingest-movis             # Fetch MOVIS-C near-IR colors/taxonomy (~18K objects)
+make audit                    # Run pipeline audit (column counts, coverage stats)
 make pipeline                 # Run full pipeline: ingest → clean → enrich → score
 ./start.sh                    # Launch web app (backend :8000 + frontend :5173)
 make serve                    # Start FastAPI backend only (uvicorn on :8000)
@@ -35,7 +38,7 @@ ingest_sbdb → ingest_lcdb → clean_sbdb → enrich → orbital → physical
 All stages live under `src/asteroid_cost_atlas/` in three packages:
 
 - **`ingest/`** — data acquisition and cleaning: SBDB fetch with page-level MD5 cache (`ingest_sbdb`), LCDB rotation periods (`ingest_lcdb`), rule-based cleaning (`clean_sbdb`), H→diameter enrichment + LCDB merge (`enrich`)
-- **`scoring/`** — feature engineering: delta-v proxy, Tisserand parameter, inclination penalty (`orbital`); surface gravity, rotation feasibility, regolith likelihood (`physical`)
+- **`scoring/`** — feature engineering: delta-v proxy, Tisserand parameter, inclination penalty (`orbital`); surface gravity, rotation feasibility, regolith likelihood (`physical`); ML composition classifier trained on 29,697 spectroscopic asteroids (`ml_classifier`); curated radar albedo and measured density overlays for ~20 well-studied targets (`overlays`)
 - **`api/`** — FastAPI REST API wrapping `CostAtlasDB` for the web frontend
 - **`utils/query.py`** — `CostAtlasDB` class wrapping DuckDB over processed Parquet; supports `top_accessible()`, `nea_candidates()`, `stats()`, and raw SQL
 

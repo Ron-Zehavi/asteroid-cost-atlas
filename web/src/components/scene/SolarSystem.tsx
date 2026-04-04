@@ -8,13 +8,15 @@ import { AsteroidCloud } from './AsteroidCloud';
 import { OrbitLine } from './OrbitLine';
 import { SunGlow } from './SunGlow';
 import { MilkyWay } from './MilkyWay';
+import { OrbitZones } from './OrbitZones';
+import { TransferArc } from './TransferArc';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
 
 interface Props {
   asteroids: Asteroid[];
   selected: Asteroid | null;
-  colorBy: 'composition' | 'delta_v' | 'viable';
+  colorBy: 'composition' | 'delta_v' | 'viable' | 'confidence';
   dayOffset: number;
   speed: number; // days per second (0 = paused)
   onDayOffsetChange: (d: number) => void;
@@ -119,6 +121,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
     <>
       <ambientLight intensity={0.08} />
       <MilkyWay />
+      <OrbitZones />
 
       <TimeAdvancer speed={speed} dayOffset={dayOffset} onChange={onDayOffsetChange} />
 
@@ -135,6 +138,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
       />
 
       {selected && <OrbitLine asteroid={selected} />}
+      {selected && <TransferArc asteroid={selected} dayOffset={dayOffset} />}
       <CameraFocus target={selectedPos} selectedId={selected?.spkid ?? null} controls={controlsRef} />
 
       <OrbitControls

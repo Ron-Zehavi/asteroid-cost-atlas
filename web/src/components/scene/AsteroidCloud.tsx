@@ -45,7 +45,7 @@ const fragmentShader = `
 
 interface Props {
   asteroids: Asteroid[];
-  colorBy: 'composition' | 'delta_v' | 'viable';
+  colorBy: 'composition' | 'delta_v' | 'viable' | 'confidence';
   dayOffset?: number;
   onClickIndex?: (index: number) => void;
 }
@@ -94,6 +94,12 @@ export function AsteroidCloud({ asteroids, colorBy, dayOffset = 0, onClickIndex 
       } else if (colorBy === 'viable') {
         if (a.is_viable) { r = 0.5; g = 1.0; b = 0.5; }
         else { r = 0.7; g = 0.7; b = 0.75; }
+      } else if (colorBy === 'confidence') {
+        const conf = a.composition_confidence ?? 0;
+        // Red (low confidence) → Yellow (medium) → Green (high)
+        if (conf < 0.3) { r = 0.9; g = 0.3; b = 0.2; }
+        else if (conf < 0.7) { r = 0.9; g = 0.8; b = 0.2; }
+        else { r = 0.2; g = 0.9; b = 0.3; }
       }
       col[i * 3] = r;
       col[i * 3 + 1] = g;

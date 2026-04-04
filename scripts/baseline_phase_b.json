@@ -1,0 +1,224 @@
+{
+  "timestamp": "2026-04-04T08:40:25.935880+00:00",
+  "structure": {
+    "missing": [],
+    "present": 54,
+    "total_expected": 54
+  },
+  "code_quality": {
+    "source_lines": 4141,
+    "test_lines": 3652,
+    "source_files": 29,
+    "test_files": 19
+  },
+  "pipeline": {
+    "stages": {
+      "SBDB ingest": {
+        "file": "sbdb_20260402.csv",
+        "size_mb": 154.5,
+        "count": 3
+      },
+      "LCDB ingest": {
+        "file": "lcdb_20260330.parquet",
+        "size_mb": 1.3,
+        "count": 1,
+        "rows": 13
+      },
+      "MOVIS ingest": {
+        "file": "movis_20260404.parquet",
+        "size_mb": 0.6,
+        "count": 1,
+        "rows": 6
+      },
+      "Gaia ingest": {
+        "file": "gaia_sso_20260404.parquet",
+        "size_mb": 2.1,
+        "count": 1,
+        "rows": 3
+      },
+      "Clean": {
+        "file": "sbdb_clean_20260402.parquet",
+        "size_mb": 43.6,
+        "count": 2,
+        "rows": 19
+      },
+      "Enrich": {
+        "file": "sbdb_enriched_20260404.parquet",
+        "size_mb": 47.1,
+        "count": 4,
+        "rows": 27
+      },
+      "Orbital": {
+        "file": "sbdb_orbital_20260404.parquet",
+        "size_mb": 75.0,
+        "count": 4,
+        "rows": 31
+      },
+      "Physical": {
+        "file": "sbdb_physical_20260404.parquet",
+        "size_mb": 78.1,
+        "count": 4,
+        "rows": 34
+      },
+      "Composition": {
+        "file": "sbdb_composition_20260404.parquet",
+        "size_mb": 95.1,
+        "count": 3,
+        "rows": 67
+      },
+      "Atlas (final)": {
+        "file": "atlas_20260402.parquet",
+        "size_mb": 173.7,
+        "count": 2,
+        "rows": 76
+      }
+    },
+    "missing_stages": []
+  },
+  "atlas": {
+    "file": "atlas_20260402.parquet",
+    "rows": 1521843,
+    "columns": 76,
+    "size_mb": 173.7,
+    "column_list": [
+      "a_au",
+      "abs_magnitude",
+      "accessibility",
+      "albedo",
+      "arg_perihelion_deg",
+      "break_even_gold_kg",
+      "break_even_iridium_kg",
+      "break_even_kg",
+      "break_even_osmium_kg",
+      "break_even_palladium_kg",
+      "break_even_platinum_kg",
+      "break_even_rhodium_kg",
+      "break_even_ruthenium_kg",
+      "campaign_cost_usd",
+      "campaign_profit_usd",
+      "campaign_revenue_usd",
+      "composition_class",
+      "composition_source",
+      "delta_v_km_s",
+      "diameter_estimated_km",
+      "diameter_km",
+      "diameter_source",
+      "eccentricity",
+      "economic_priority_rank",
+      "economic_score",
+      "epoch_mjd",
+      "estimated_mass_kg",
+      "extractable_gold_kg",
+      "extractable_iridium_kg",
+      "extractable_osmium_kg",
+      "extractable_palladium_kg",
+      "extractable_platinum_kg",
+      "extractable_rhodium_kg",
+      "extractable_ruthenium_kg",
+      "gold_ppm",
+      "inclination_deg",
+      "inclination_penalty",
+      "iridium_ppm",
+      "is_viable",
+      "long_asc_node_deg",
+      "magnitude_slope",
+      "margin_per_kg",
+      "mean_anomaly_deg",
+      "metals_value_usd_per_kg",
+      "min_viable_kg",
+      "mission_cost_usd",
+      "mission_cost_usd_per_kg",
+      "mission_profit_usd",
+      "mission_revenue_usd",
+      "missions_supported",
+      "moid_au",
+      "name",
+      "neo",
+      "orbit_class",
+      "orbital_precision_source",
+      "osmium_ppm",
+      "palladium_ppm",
+      "pha",
+      "platinum_ppm",
+      "precious_value_usd_per_kg",
+      "regolith_likelihood",
+      "resource_value_usd_per_kg",
+      "rhodium_ppm",
+      "rotation_feasibility",
+      "rotation_hours",
+      "rotation_source",
+      "ruthenium_ppm",
+      "specimen_value_per_kg",
+      "spectral_type",
+      "spkid",
+      "surface_gravity_m_s2",
+      "taxonomy",
+      "tisserand_jupiter",
+      "total_extractable_precious_kg",
+      "total_precious_value_usd",
+      "water_value_usd_per_kg"
+    ],
+    "null_rates_pct": {
+      "spkid": 0.0,
+      "name": 0.0,
+      "a_au": 0.0,
+      "eccentricity": 0.0,
+      "inclination_deg": 0.0,
+      "abs_magnitude": 0.15,
+      "diameter_estimated_km": 0.12,
+      "diameter_km": 90.82,
+      "albedo": 90.17,
+      "rotation_hours": 97.73,
+      "neo": 0.1,
+      "taxonomy": 98.05,
+      "spectral_type": 99.89,
+      "delta_v_km_s": 0.0,
+      "composition_class": 0.0,
+      "estimated_mass_kg": 0.12,
+      "is_viable": 0.0
+    },
+    "data_source_coverage": {
+      "taxonomy": 29697,
+      "spectral_type": 1666,
+      "albedo": 149653,
+      "diameter_measured": 139690,
+      "diameter_any": 1520063,
+      "rotation": 34614
+    },
+    "composition_classes": {
+      "U": 1372061,
+      "C": 86243,
+      "S": 55342,
+      "V": 6293,
+      "M": 1904
+    },
+    "composition_sources": {
+      "none": 1372061,
+      "albedo": 119791,
+      "taxonomy": 29991
+    },
+    "resource_value_per_kg": {
+      "mean": 12.97,
+      "median": 10.89,
+      "min": 3.76,
+      "max": 50.02
+    },
+    "platinum_ppm": {
+      "mean": 1.4662
+    },
+    "economics": {
+      "positive_margin": 10313,
+      "viable_targets": 498,
+      "total_missions": 23127,
+      "best_campaign_profit": 371303874.0
+    },
+    "delta_v": {
+      "min": 0.1,
+      "max": 44.37,
+      "mean": 8.77,
+      "median": 8.6,
+      "lt_5": 8644,
+      "lt_10": 1285321
+    }
+  }
+}

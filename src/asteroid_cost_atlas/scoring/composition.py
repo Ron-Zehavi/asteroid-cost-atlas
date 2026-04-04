@@ -86,6 +86,15 @@ _SDSS_DIST: dict[str, tuple[float, float, float, float]] = {
     "V": (0.40, 0.05, 0.16, 0.05),
 }
 
+# MOVIS NIR class-conditional distributions (Popescu+ 2018, from Fig. 3)
+# (Y-J mean, Y-J std, J-Ks mean, J-Ks std)
+_MOVIS_DIST: dict[str, tuple[float, float, float, float]] = {
+    "C": (0.30, 0.06, 0.35, 0.08),   # blue/flat NIR
+    "S": (0.38, 0.05, 0.55, 0.07),   # moderate red NIR
+    "M": (0.32, 0.05, 0.42, 0.06),   # flat-moderate, distinct from S
+    "V": (0.40, 0.06, 0.60, 0.08),   # very red NIR
+}
+
 # ---------------------------------------------------------------------------
 # Per-metal concentration model: P10 / P50 / P90
 # ---------------------------------------------------------------------------
@@ -265,6 +274,10 @@ def infer_class_probabilities(
     albedo: float | None = None,
     color_gr: float | None = None,
     color_ri: float | None = None,
+    movis_yj: float | None = None,
+    movis_jks: float | None = None,
+    movis_hks: float | None = None,
+    movis_taxonomy: str | None = None,
 ) -> dict[str, float]:
     """
     Compute posterior class probabilities from available evidence.
@@ -281,6 +294,13 @@ def infer_class_probabilities(
         if tax_class != "U":
             for c in CLASSES:
                 posterior[c] *= 0.95 if c == tax_class else 0.017
+
+    # MOVIS taxonomy (strong, independent from LCDB/SBDB taxonomy)
+    if movis_taxonomy is not None and isinstance(movis_taxonomy, str):
+        mtax_class = classify_taxonomy(movis_taxonomy)
+        if mtax_class != "U":
+            for c in CLASSES:
+                posterior[c] *= 0.85 if c == mtax_class else 0.05
 
     # Spectral type likelihood (strong but slightly weaker)
     if spectral_type is not None and isinstance(spectral_type, str):
@@ -303,6 +323,15 @@ def infer_class_probabilities(
             l_gr = _gaussian_pdf(color_gr, gr_mu, gr_sig)
             l_ri = _gaussian_pdf(color_ri, ri_mu, ri_sig)
             posterior[c] *= l_gr * l_ri
+
+    # MOVIS NIR color likelihood (Y-J and J-Ks)
+    if (movis_yj is not None and movis_jks is not None
+            and math.isfinite(movis_yj) and math.isfinite(movis_jks)):
+        for c in CLASSES:
+            yj_mu, yj_sig, jks_mu, jks_sig = _MOVIS_DIST[c]
+            l_yj = _gaussian_pdf(movis_yj, yj_mu, yj_sig)
+            l_jks = _gaussian_pdf(movis_jks, jks_mu, jks_sig)
+            posterior[c] *= l_yj * l_jks
 
     # Normalize
     total = sum(posterior.values())
@@ -390,6 +419,22 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
         df["color_ri"].to_numpy(dtype=float, na_value=np.nan)
         if "color_ri" in df.columns else np.full(n, np.nan)
     )
+    myj_vals = (
+        df["movis_yj"].to_numpy(dtype=float, na_value=np.nan)
+        if "movis_yj" in df.columns else np.full(n, np.nan)
+    )
+    mjks_vals = (
+        df["movis_jks"].to_numpy(dtype=float, na_value=np.nan)
+        if "movis_jks" in df.columns else np.full(n, np.nan)
+    )
+    mhk_vals = (
+        df["movis_hks"].to_numpy(dtype=float, na_value=np.nan)
+        if "movis_hks" in df.columns else np.full(n, np.nan)
+    )
+    mtax_vals = (
+        df["movis_taxonomy"].values
+        if "movis_taxonomy" in df.columns else [None] * n
+    )
 
     # Compute per-asteroid probabilities
     prob_arr = np.zeros((n, 4))
@@ -403,8 +448,14 @@ def add_composition_features(df: pd.DataFrame) -> pd.DataFrame:
         alb = float(alb_vals[i]) if np.isfinite(alb_vals[i]) else None
         gr = float(gr_vals[i]) if np.isfinite(gr_vals[i]) else None
         ri = float(ri_vals[i]) if np.isfinite(ri_vals[i]) else None
+        myj = float(myj_vals[i]) if np.isfinite(myj_vals[i]) else None
+        mjks = float(mjks_vals[i]) if np.isfinite(mjks_vals[i]) else None
+        mhk = float(mhk_vals[i]) if np.isfinite(mhk_vals[i]) else None
+        mtax = str(mtax_vals[i]) if pd.notna(mtax_vals[i]) else None
 
-        probs = infer_class_probabilities(tax, spec, alb, gr, ri)
+        probs = infer_class_probabilities(
+            tax, spec, alb, gr, ri, myj, mjks, mhk, mtax,
+        )
         prob_arr[i] = [probs[c] for c in CLASSES]
         conf_arr[i] = composition_confidence(probs)
         source_arr[i] = _dominant_source(tax, spec, alb, gr, ri)
@@ -498,6 +549,26 @@ def main() -> int:
     logger.info("Loaded %d rows", len(df))
 
     result = add_composition_features(df)
+
+    # Phase C: ML classifier overlay
+    try:
+        from asteroid_cost_atlas.scoring.ml_classifier import add_ml_predictions
+
+        result = add_ml_predictions(result)
+        logger.info(
+            "ML classifier: avg confidence %.3f",
+            result["ml_confidence"].mean(),
+        )
+    except Exception as exc:
+        logger.warning("ML classifier skipped: %s", exc)
+
+    # Phase C: High-confidence overlays (radar, density)
+    try:
+        from asteroid_cost_atlas.scoring.overlays import apply_overlays
+
+        result = apply_overlays(result)
+    except Exception as exc:
+        logger.warning("Overlays skipped: %s", exc)
 
     counts = result["composition_class"].value_counts().to_dict()
     avg_conf = result["composition_confidence"].mean()

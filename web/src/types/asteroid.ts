@@ -27,6 +27,7 @@ export interface Asteroid {
   regolith_likelihood: number | null;
   composition_class: string | null;
   composition_source: string | null;
+  composition_confidence: number | null;
   resource_value_usd_per_kg: number | null;
   specimen_value_per_kg: number | null;
   estimated_mass_kg: number | null;

@@ -35,10 +35,10 @@
 
 ## 1. Executive Summary
 
-Asteroid Cost Atlas is a Python data-engineering pipeline that transforms the NASA Small-Body Database (~1.52M asteroids) into a ranked economic atlas for space-resource missions. It ingests data from 5 public catalogs, applies orbital/physical/composition scoring, and runs a subsystem-based mission cost model to identify viable precious-metal extraction targets.
+Asteroid Cost Atlas is a Python data-engineering pipeline that transforms the NASA Small-Body Database (~1.52M asteroids) into a ranked economic atlas for space-resource missions. It ingests data from 7 public catalogs, applies orbital/physical/composition scoring, and runs a subsystem-based mission cost model to identify viable precious-metal extraction targets.
 
 **Key outputs:**
-- `atlas_YYYYMMDD.parquet` — ~1.52M rows, ~80 columns, 156 MB
+- `atlas_YYYYMMDD.parquet` — ~1.52M rows, ~107 columns, 156 MB
 - 498 asteroids identified as economically viable (positive campaign profit)
 - 10,310 asteroids with positive per-kg margin
 - 23,127 total profitable missions supported across all viable targets
@@ -62,12 +62,15 @@ asteroid-cost-atlas/
 │   │   ├── ingest_neowise.py          # NEOWISE diameters/albedos (PDS CSV)
 │   │   ├── ingest_spectral.py         # SDSS MOC photometry (PDS table)
 │   │   ├── ingest_horizons.py         # JPL Horizons orbital elements (REST API, NEA-only)
+│   │   ├── ingest_movis.py           # MOVIS-C near-IR colors/taxonomy (VizieR)
 │   │   ├── clean_sbdb.py              # Rule-based validation filter
-│   │   └── enrich.py                  # LCDB + NEOWISE + SDSS merge, H→diameter estimation
+│   │   └── enrich.py                  # LCDB + NEOWISE + SDSS + MOVIS merge, H→diameter estimation
 │   ├── scoring/
 │   │   ├── orbital.py                 # Delta-v, Tisserand, inclination penalty
 │   │   ├── physical.py                # Gravity, rotation feasibility, regolith
-│   │   ├── composition.py             # C/S/M/V classification, per-metal resource model
+│   │   ├── composition.py             # Bayesian probabilistic classification, per-metal resource model
+│   │   ├── ml_classifier.py          # Random forest composition classifier (scikit-learn)
+│   │   ├── overlays.py               # Radar albedo + measured density high-confidence overlays
 │   │   └── economic.py                # Mission cost, break-even, campaign economics, ranking
 │   ├── api/
 │   │   └── main.py                    # FastAPI REST API wrapping CostAtlasDB
@@ -85,6 +88,8 @@ asteroid-cost-atlas/
 ├── data/
 │   ├── raw/                           # Ingested CSVs, Parquets, cache, metadata
 │   └── processed/                     # Pipeline stage outputs + final atlas
+├── scripts/
+│   └── audit.py                       # Project audit + data integrity checker
 ├── .github/workflows/ci.yml           # Python 3.11/3.12 matrix CI
 ├── Makefile                           # 20+ targets including full pipeline
 ├── pyproject.toml                     # hatchling build, deps, tool config
@@ -128,9 +133,10 @@ Stage  Module                    Input                           Output         
  1b    ingest_lcdb               LCDB ZIP download               data/raw/lcdb_{date}.parquet        rotation, taxonomy, albedo
  1c    ingest_neowise            NEOWISE PDS CSV                 data/raw/neowise_{date}.parquet     diameter, albedo
  1d    ingest_spectral           SDSS MOC PDS table              data/raw/sdss_moc_{date}.parquet    color indices (g-r, r-i, i-z)
+ 1f    ingest_movis              VizieR MOVIS-C catalog          data/raw/movis_{date}.parquet       NIR colors (Y-J, J-Ks, H-Ks), taxonomy
  2     clean_sbdb                sbdb_{date}.csv                 sbdb_clean_{date}.parquet           (rows removed, no new cols)
- 3     enrich                    sbdb_clean + lcdb + neowise     sbdb_enriched_{date}.parquet        +7 cols (diameter est, rotation src, taxonomy, colors)
-                                 + sdss_moc
+ 3     enrich                    sbdb_clean + lcdb + neowise     sbdb_enriched_{date}.parquet        +11 cols (diameter est, rotation src, taxonomy, colors, MOVIS)
+                                 + sdss_moc + movis
  1e    ingest_horizons           sbdb_enriched (to get NEA IDs)  data/raw/horizons_{date}.parquet    high-precision a, e, i
  4     orbital                   sbdb_enriched + horizons        sbdb_orbital_{date}.parquet         +4 cols (dv, T_J, inc_penalty, precision_src)
  5     physical                  sbdb_orbital                    sbdb_physical_{date}.parquet        +3 cols (gravity, rotation_feas, regolith)
@@ -151,8 +157,9 @@ Some stages have fallbacks (e.g., orbital tries `sbdb_enriched_*` then `sbdb_cle
 ### Makefile Pipeline Command
 
 ```makefile
-pipeline: ingest ingest-lcdb ingest-neowise ingest-spectral clean-data enrich \
-          ingest-horizons score-orbital score-physical score-composition atlas
+pipeline: ingest ingest-lcdb ingest-neowise ingest-spectral ingest-movis \
+          clean-data enrich ingest-horizons score-orbital score-physical \
+          score-composition atlas
 ```
 
 Each target runs: `python -m asteroid_cost_atlas.<module>`
@@ -387,7 +394,7 @@ with CostAtlasDB(path) as db:
 
 ## 8. Final Atlas Schema
 
-The `atlas_YYYYMMDD.parquet` file contains ~80 columns. Grouped by origin:
+The `atlas_YYYYMMDD.parquet` file contains ~107 columns. Grouped by origin:
 
 ### Identifiers (2)
 `spkid` (int64), `name` (string)
@@ -432,7 +439,7 @@ Optional Horizons: `a_au_horizons`, `eccentricity_horizons`, `inclination_deg_ho
 ### Ranking (2)
 `economic_score`, `economic_priority_rank`
 
-**Total: ~78 columns** (varies by ±3 depending on optional Horizons/SDSS availability)
+**Total: ~107 columns** (includes probabilistic, ML, overlay, and per-metal range columns)
 
 ---
 
@@ -495,7 +502,9 @@ YamlConfig → EnvOverrides → ResolvedConfig (all paths absolute)
 | test_enrich.py | 44 | H→D estimation, LCDB merge, NEOWISE merge, SDSS merge, albedo priors |
 | test_orbital.py | 43 | Tisserand, delta-v, inclination penalty, vectorisation, Horizons override |
 | test_physical.py | 45 | Gravity, rotation feasibility, regolith, independent scoring |
-| test_composition.py | 20 | Taxonomy mapping, albedo classification, SDSS colors, resource values |
+| test_composition.py | 46 | Bayesian inference, probabilistic classification, confidence, P10/P90 ranges |
+| test_ml_classifier.py | 8 | Random forest training, prediction, confidence |
+| test_overlays.py | 9 | Radar/density overlays, probability adjustment, Psyche/Bennu verification |
 | test_economic.py | 19 | Mass estimation, transport cost, break-even, viability, ranking |
 | test_query.py | 28 | SQL interface, pre-built queries, input validation, context manager |
 | test_pipeline_integration.py | 11 | End-to-end: clean → orbital → physical → composition → economic |

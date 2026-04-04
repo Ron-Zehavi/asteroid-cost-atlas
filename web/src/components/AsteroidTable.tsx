@@ -38,6 +38,11 @@ const BASE_COLUMNS: ColDef[] = [
     render: (a) => a.name },
   { key: 'composition_class', label: 'Class', tooltip: 'C=carbonaceous, S=silicaceous, M=metallic, V=basaltic, U=unknown', sortable: false,
     render: (a) => a.composition_class ?? '—' },
+  { key: 'composition_confidence', label: 'Conf', tooltip: 'Classification confidence: 0%=uncertain (prior only), 100%=certain (confirmed taxonomy). Higher = more reliable resource estimates', sortable: true, className: 'col-confidence',
+    render: (a) => {
+      if (a.composition_confidence == null) return '—';
+      return `${(a.composition_confidence * 100).toFixed(0)}%`;
+    } },
   { key: 'diameter_estimated_km', label: 'D (km)', tooltip: 'Estimated diameter in km (measured or from absolute magnitude)', sortable: true,
     render: (a) => fmtN(a.diameter_estimated_km, 3) },
   { key: 'delta_v_km_s', label: 'Dv', tooltip: 'Delta-v mission cost proxy (km/s) — lower = easier to reach', sortable: true,

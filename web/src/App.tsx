@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { AsteroidTable } from './components/AsteroidTable';
 import { FilterBar } from './components/FilterBar';
 import { SearchBox } from './components/SearchBox';
@@ -8,9 +8,11 @@ import { TimelineSlider, todayOffset, type PlaySpeed } from './components/Timeli
 import { SolarSystem } from './components/scene/SolarSystem';
 import { useAsteroids } from './hooks/useAsteroids';
 import { useStats } from './hooks/useStats';
+import { computeHohmannTransfer, estimateLaunchWindows } from './utils/transfer';
+import { SpacecraftPreview } from './components/scene/SpacecraftPreview';
 import './App.css';
 
-type ColorBy = 'composition' | 'delta_v' | 'viable';
+type ColorBy = 'composition' | 'delta_v' | 'viable' | 'confidence';
 
 export default function App() {
   const {
@@ -23,6 +25,15 @@ export default function App() {
   const [dayOffset, setDayOffset] = useState(todayOffset);
   const [speed, setSpeed] = useState<PlaySpeed>(10);
   const [showAbout, setShowAbout] = useState(false);
+
+  // Compute launch windows across full timeline for selected asteroid
+  const selectedWindows = useMemo(() => {
+    if (!selected?.a_au || !selected?.inclination_deg) return undefined;
+    const transfer = computeHohmannTransfer(selected.a_au, selected.inclination_deg);
+    // Cover the full timeline (0 to 18262 days)
+    const count = Math.ceil(18262 / transfer.synodic_days) + 2;
+    return estimateLaunchWindows(transfer.synodic_days, transfer.transfer_days, 0, count);
+  }, [selected?.a_au, selected?.inclination_deg, selected?.spkid]);  // eslint-disable-line
 
   return (
     <div className="app">
@@ -37,6 +48,7 @@ export default function App() {
           <option value="composition">Color: Composition</option>
           <option value="delta_v">Color: Delta-v</option>
           <option value="viable">Color: Viability</option>
+          <option value="confidence">Color: Confidence</option>
         </select>
         <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
       </header>
@@ -80,10 +92,12 @@ export default function App() {
           onChange={setDayOffset}
           speed={speed}
           onSetSpeed={setSpeed}
+          windows={selectedWindows}
         />
       </div>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
+      <SpacecraftPreview />
     </div>
   );
 }

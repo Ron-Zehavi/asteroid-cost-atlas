@@ -7,6 +7,7 @@ const DEFAULT_FILTERS: Filters = {
   order: 'asc',
   limit: 50,
   offset: 0,
+  dv_max: 3,
 };
 
 export function useAsteroids() {

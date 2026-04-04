@@ -19,25 +19,25 @@ Inspired by the accessibility and value estimates pioneered by [Asterank](https:
 ## Pipeline Architecture
 
 ```
-NASA SBDB API     LCDB          NEOWISE (PDS)     SDSS MOC        JPL Horizons
-     │              │                │                │                │
-     ▼              ▼                ▼                ▼                │
-┌──────────┐  ┌───────────┐  ┌─────────────┐  ┌─────────────┐       │
-│ 1. SBDB  │  │ 1b. LCDB  │  │ 1c. NEOWISE │  │ 1d. SDSS    │       │
-│  Ingest  │  │  Ingest   │  │   Ingest    │  │   Ingest    │       │
-└────┬─────┘  └─────┬─────┘  └──────┬──────┘  └──────┬──────┘       │
-     │              │               │                │               │
-     ▼              │               │                │               │
-┌──────────┐        │               │                │               │
-│ 2. Clean │        │               │                │               │
-└────┬─────┘        │               │                │               │
-     │              │               │                │               │
-     ▼              ▼               ▼                ▼               │
-┌────────────────────────────────────────────────┐                   │
-│  3. Enrich                                     │                   │
-│  LCDB merge → NEOWISE merge → SDSS merge       │                   │
-│  → H→diameter estimation (99.9% coverage)      │                   │
-└────────────────────┬───────────────────────────┘                   │
+NASA SBDB API     LCDB          NEOWISE (PDS)     SDSS MOC        MOVIS-C         JPL Horizons
+     │              │                │                │                │                │
+     ▼              ▼                ▼                ▼                ▼                │
+┌──────────┐  ┌───────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
+│ 1. SBDB  │  │ 1b. LCDB  │  │ 1c. NEOWISE │  │ 1d. SDSS    │  │ 1f. MOVIS-C │       │
+│  Ingest  │  │  Ingest   │  │   Ingest    │  │   Ingest    │  │   Ingest    │       │
+└────┬─────┘  └─────┬─────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
+     │              │               │                │                │               │
+     ▼              │               │                │                │               │
+┌──────────┐        │               │                │                │               │
+│ 2. Clean │        │               │                │                │               │
+└────┬─────┘        │               │                │                │               │
+     │              │               │                │                │               │
+     ▼              ▼               ▼                ▼                ▼               │
+┌──────────────────────────────────────────────────────────────────────────┐          │
+│  3. Enrich                                                              │          │
+│  LCDB merge → NEOWISE merge → SDSS merge → MOVIS merge                  │          │
+│  → H→diameter estimation (99.9% coverage)                               │          │
+└────────────────────┬────────────────────────────────────────────────────┘          │
                      │                                               │
                      ▼                                               ▼
               ┌──────────────────────┐                    ┌───────────────┐
@@ -84,12 +84,15 @@ asteroid-cost-atlas/
 │   │   ├── ingest_neowise.py    # NEOWISE diameters/albedos (~164K objects)
 │   │   ├── ingest_spectral.py   # SDSS MOC photometry, color indices
 │   │   ├── ingest_horizons.py   # JPL Horizons high-precision orbital elements (NEAs)
+│   │   ├── ingest_movis.py     # MOVIS-C near-IR colors and taxonomy (~18K objects)
 │   │   ├── clean_sbdb.py        # Rule-based data cleaning with per-rule logging
-│   │   └── enrich.py            # LCDB + NEOWISE + SDSS merge, H→diameter estimation
+│   │   └── enrich.py            # LCDB + NEOWISE + SDSS + MOVIS merge, H→diameter estimation
 │   ├── scoring/
 │   │   ├── orbital.py           # Delta-v, Tisserand, inclination penalty
 │   │   ├── physical.py          # Gravity, rotation feasibility, regolith
 │   │   ├── composition.py       # C/S/M/V classification from taxonomy + albedo
+│   │   ├── ml_classifier.py     # Random forest composition classifier (94.4% accuracy)
+│   │   ├── overlays.py          # Curated radar albedo + measured density overlays
 │   │   └── economic.py          # Mass, value, accessibility, ranking
 │   ├── models/
 │   │   └── asteroid.py          # Pydantic AsteroidRecord model
@@ -108,6 +111,7 @@ asteroid-cost-atlas/
 │   ├── test_ingest_neowise.py
 │   ├── test_ingest_spectral.py
 │   ├── test_ingest_horizons.py
+│   ├── test_ingest_movis.py
 │   ├── test_clean_sbdb.py
 │   ├── test_enrich.py
 │   ├── test_orbital.py
@@ -116,6 +120,8 @@ asteroid-cost-atlas/
 │   ├── test_economic.py
 │   ├── test_query.py
 │   ├── test_api.py
+│   ├── test_ml_classifier.py
+│   ├── test_overlays.py
 │   ├── test_pipeline_integration.py
 │   └── test_settings.py
 ├── notebooks/
@@ -130,6 +136,8 @@ asteroid-cost-atlas/
 ├── docs/
 │   ├── DATA_DICTIONARY.md       # Complete field reference for all pipeline stages
 │   └── METHODOLOGY.md           # Scientific methodology, models, and source citations
+├── scripts/
+│   └── audit.py                   # Pipeline audit: column counts, coverage, baselines
 ├── web/                           # React frontend (Vite + TypeScript + Three.js)
 ├── .github/workflows/
 │   └── ci.yml                   # Lint → type-check → test (Python 3.11/3.12)
@@ -211,7 +219,7 @@ All paths are resolved relative to the repository root regardless of working dir
 ./start.sh        # starts API on :8000 and React dev server on :5173
 
 # Run the full pipeline end-to-end
-make pipeline     # ingest → enrich → score → atlas (all sources)
+make pipeline     # ingest → enrich → score → atlas (all sources incl. MOVIS-C)
 
 # Or run stages individually
 make ingest            # fetch raw SBDB catalog (~1.5M objects)
@@ -221,11 +229,17 @@ make ingest-spectral   # fetch SDSS MOC photometry (~40K objects)
 make clean-data        # validate and filter → clean Parquet
 make enrich            # LCDB + NEOWISE + SDSS merge, H→diameter estimation
 make ingest-horizons   # fetch JPL Horizons elements for NEAs (~35K objects)
+make ingest-movis      # fetch MOVIS-C near-IR colors/taxonomy (~18K objects)
 make score-orbital     # add orbital features (Horizons-enhanced) → scored Parquet
 make score-physical    # add physical feasibility → scored Parquet
 make score-composition # classify C/S/M/V from taxonomy + SDSS colors + albedo
 make atlas             # economic scoring + final ranked atlas
 make query             # run a sample query against the atlas
+make audit             # run pipeline audit (column counts, coverage stats)
+
+# Run audit with baseline comparison
+python scripts/audit.py --save          # save current audit as baseline
+python scripts/audit.py --compare       # compare against saved baseline
 
 # CLI entry points (after pip install -e .)
 asteroid-ingest --page-size 5000 --output data/raw
@@ -250,13 +264,15 @@ Available `make` targets:
   ingest-neowise     Fetch NEOWISE diameters/albedos
   ingest-spectral    Fetch SDSS MOC photometry
   ingest-horizons    Fetch JPL Horizons elements for NEAs
+  ingest-movis       Fetch MOVIS-C near-IR colors and taxonomy
   clean-data         Validate and filter raw CSV
-  enrich             LCDB + NEOWISE + SDSS merge, H→diameter estimation
+  enrich             LCDB + NEOWISE + SDSS + MOVIS merge, H→diameter estimation
   score-orbital      Apply orbital scoring (Horizons-enhanced)
   score-physical     Apply physical feasibility scoring
   score-composition  Classify composition from taxonomy + SDSS + albedo
   atlas              Economic scoring + final ranked atlas
   query              Run a sample query against the atlas
+  audit              Run pipeline audit (column counts, coverage, baselines)
   data-info          Show available pipeline outputs and metadata
   clean-outputs      Remove processed Parquet outputs (keeps raw data)
   lint               Lint with ruff
@@ -280,6 +296,7 @@ Available `make` targets:
 - NEOWISE integration — ~164K measured diameters and geometric albedos from thermal infrared
 - SDSS MOC integration — ~40K photometric color indices for composition inference
 - JPL Horizons integration — high-precision orbital elements for NEAs (~35K objects)
+- MOVIS-C integration — ~18K near-IR color indices (Y-J, J-Ks, H-Ks) and probabilistic taxonomy from VizieR (Popescu et al. 2018)
 - Page-level MD5-keyed disk cache — SBDB reruns skip network entirely
 - Per-run metadata output (timestamp, source URL, fields, record count)
 - Structured JSON logging with retry adapter for API resilience
@@ -290,9 +307,10 @@ Available `make` targets:
 - Raw data never modified — all filtering is explicit and auditable
 
 **Data enrichment** ✓
-- Four-layer merge: LCDB → NEOWISE → SDSS → H→diameter estimation
+- Five-layer merge: LCDB → NEOWISE → SDSS → MOVIS → H→diameter estimation
 - NEOWISE merge: fills diameter gaps (9% → ~20% directly measured), fills albedo gaps (9% → ~20%)
 - SDSS merge: adds g-r, r-i color indices for composition inference downstream
+- MOVIS merge: adds near-IR Y-J, J-Ks, H-Ks color indices for Bayesian composition model (particularly M-type identification)
 - H→diameter estimation via IAU formula (D = 1329/sqrt(pV) x 10^(-H/5))
 - Taxonomy-aware albedo priors: measured albedo → NEOWISE → class prior (C: 0.06, S: 0.25, M: 0.14, V: 0.35) → default 0.154
 - LCDB merge: taxonomy, albedo gap-fill, rotation provenance tracking
@@ -314,7 +332,11 @@ Available `make` targets:
 - NEOWISE-measured diameters improve gravity estimates for ~164K objects
 
 **Composition proxies with meteorite-analog resource model** ✓
-- Five-layer classification: taxonomy → spectral type → SDSS colors → albedo → "U"
+- Probabilistic Bayesian composition model with class probability vectors (prob_C/S/M/V), confidence scores, and P10/P50/P90 PGM ranges
+- ML classifier (random forest trained on 29,697 spectroscopically confirmed asteroids, 94.4% accuracy) adds ml_prob_C/S/M/V and ml_confidence columns. Requires optional `[ml]` dependency (scikit-learn)
+- High-confidence overlays: curated radar albedo (Shepard et al. 2010, 2015) and measured density (Carry 2012) for ~20 well-studied asteroids, adjusting prob_* columns for confirmed metallic/carbonaceous targets
+- Six-layer classification: taxonomy → spectral type → SDSS colors → MOVIS NIR → albedo → "U"
+- MOVIS NIR colors as additional Bayesian likelihood term (particularly valuable for M-type identification)
 - SDSS color-index inference: empirical g-r/r-i boundaries classify C/S/V types
 - Multi-resource value model based on Cannon et al. (2023) and Lodders et al. (2025):
   - **Water** — C-type: 15 wt%, extraction yield 60%, $500/kg in-space propellant value
@@ -344,10 +366,13 @@ Available `make` targets:
 - FastAPI REST API wrapping the CostAtlasDB query layer (`src/asteroid_cost_atlas/api/`)
 - Endpoints: `/api/stats`, `/api/asteroids` (paginated, filterable), `/api/asteroids/{spkid}`, `/api/asteroids/top`, `/api/asteroids/nea`, `/api/search?q=`, `/api/charts/delta-v`, `/api/charts/composition`, `/api/health`
 - React frontend (`web/`) with Vite + TypeScript
-- AsteroidTable with extraction quantities and 1t/10t/100t profit columns
+- AsteroidTable with extraction quantities, 1t/10t/100t profit columns, and composition confidence column
 - AsteroidDetail drawer with mining scenario analysis
-- FilterBar, SearchBox, StatsCards, ComparePanel components
-- 3D solar system scene (react-three-fiber / Three.js): Sun + 8 planets with Kepler propagation, asteroid point clouds color-coded by composition/delta-v/viability, orbit line highlight on selection, camera focus on click
+- FilterBar (default Max Dv = 3 km/s), SearchBox, StatsCards, ComparePanel components
+- 3D solar system scene (react-three-fiber / Three.js): Sun + 8 planets with Kepler propagation, asteroid point clouds color-coded by composition/delta-v/viability/confidence, orbit line highlight on selection, camera focus on click
+- Orbit zone shading: NEO Region, Main Belt, Jupiter Trojans bands
+- Transfer trajectory simulation: Hohmann transfer arcs with 4 mission phases (waiting, window_open, in_transit, arrived) and animated spacecraft dot
+- About modal with project vision, methodology, and references
 - TimelineSlider for epoch propagation (2000-2035)
 - Comparison mode — pin up to 3 asteroids for side-by-side metrics
 - 17 API tests, 87.3% total coverage, 27 mypy-clean source files
@@ -551,6 +576,7 @@ Per asteroid, the atlas computes:
 - [x] Taxonomy-aware albedo priors — class-specific pV (C: 0.06, S: 0.25, M: 0.14, V: 0.35)
 - [x] JPL Horizons integration — higher-fidelity orbital elements (NEA-scoped)
 - [x] Spectral catalog joins — SDSS MOC photometry for improved composition signals
+- [x] MOVIS-C integration — near-IR color indices and probabilistic taxonomy (~18K objects)
 
 ### Phase 2 — Interactive Mission Visualization Platform
 
@@ -606,7 +632,7 @@ The transition from static dataset to decision-support interface. A browser-base
 
 ## Long-term Vision
 
-Become a reproducible, openly maintained reference dataset **and interactive mission-planning tool** for asteroid economic accessibility. Phase 1 builds the data foundation — a scored, enriched catalog updated on a regular cadence as NASA catalogs are refreshed, extensible with new sources (NEOWISE, Gaia DR3, spectral surveys). Phase 2 puts that data into the hands of mission planners through a browser-based visualization platform where users can explore the solar system, select targets, and evaluate launch windows — turning a static dataset into a living decision-support interface.
+Become a reproducible, openly maintained reference dataset **and interactive mission-planning tool** for asteroid economic accessibility. Phase 1 builds the data foundation — a scored, enriched catalog updated on a regular cadence as NASA catalogs are refreshed, extensible with new sources (NEOWISE, MOVIS-C, spectral surveys). Phase 2 puts that data into the hands of mission planners through a browser-based visualization platform where users can explore the solar system, select targets, and evaluate launch windows — turning a static dataset into a living decision-support interface.
 
 ---
 

@@ -44,6 +44,16 @@ Multi-band photometry (u, g, r, i, z) of asteroids observed serendipitously duri
 - **Coverage:** ~40K asteroids with g, r, i, z magnitudes
 - **Used for:** Color-index (g-r, r-i) based composition inference
 
+### 1.6 MOVIS-C Near-Infrared Catalog
+
+Near-infrared color indices and probabilistic taxonomy for ~18K asteroids observed in VISTA-VHS.
+
+- **Source:** Popescu, M., et al. (2018). "MOVIS-C: A catalog of Visible-NIR colors of asteroids observed with VISTA-VHS." *Astronomy & Astrophysics*, 617, A12. doi:[10.1051/0004-6361/201833023](https://doi.org/10.1051/0004-6361/201833023)
+- **URL:** VizieR catalog J/A+A/617/A12 at [vizier.cds.unistra.fr](https://vizier.cds.unistra.fr)
+- **Coverage:** 18,081 asteroids with Y-J, J-Ks, H-Ks color indices
+- **Join key:** `spkid = number + 20,000,000`
+- **Used for:** NIR-based Bayesian composition likelihood, particularly valuable for M-type identification
+
 ### 1.5 JPL Horizons Ephemeris System
 
 On-demand computation of high-precision osculating orbital elements using numerical integration models that account for planetary perturbations.
@@ -177,13 +187,14 @@ Asteroid spectral types are mapped to five resource classes following the Bus-De
 
 ### 4.2 Classification Priority
 
-Five layers are applied sequentially; the first layer to assign a non-"U" class wins.
+Six layers are applied sequentially; the first layer to assign a non-"U" class wins. MOVIS NIR colors also serve as an additional Bayesian likelihood term when computing class probability vectors (prob_C/S/M/V).
 
 1. **Taxonomy** — direct LCDB/SBDB taxonomy via the mapping above
 2. **Spectral type** — SBDB SMASSII spectral classification via the same mapping
 3. **SDSS color indices** — empirical g-r / r-i boundaries (Section 4.3)
-4. **Albedo** — measured geometric albedo thresholds
-5. **Default** — "U" (unknown)
+4. **MOVIS NIR colors** — near-infrared class-conditional distributions (Section 4.6)
+5. **Albedo** — measured geometric albedo thresholds
+6. **Default** — "U" (unknown)
 
 ### 4.3 SDSS Color-Index Classification
 
@@ -227,6 +238,68 @@ When a measured albedo is unavailable but taxonomy is known, the H-to-diameter f
 
 **Reference:**
 - Mainzer, A. K., et al. (2011). "NEOWISE Observations of Near-Earth Objects: Preliminary Results." *Astrophysical Journal*, 743(2), 156. doi:[10.1088/0004-637X/743/2/156](https://doi.org/10.1088/0004-637X/743/2/156)
+
+### 4.6 MOVIS Near-Infrared Classification
+
+When MOVIS-C near-infrared color indices are available, they provide an additional likelihood term in the Bayesian composition model. The class-conditional distributions used are based on the MOVIS-C catalog centroids from Popescu et al. (2018):
+
+| Class | Y-J (mean) | J-Ks (mean) | Characteristic |
+|---|---|---|---|
+| **C** (carbonaceous) | ~0.30 | ~0.35 | Neutral/blue NIR slope, low reflectance |
+| **S** (silicaceous) | ~0.38 | ~0.55 | Moderately red NIR slope |
+| **M** (metallic) | ~0.32 | ~0.42 | Intermediate slope, distinguishable from S |
+| **V** (basaltic) | ~0.40 | ~0.60 | Reddest NIR slope, strong 1-micron band |
+
+MOVIS NIR colors are particularly valuable for distinguishing M-types from S-types, which overlap in visible albedo space. The Y-J and J-Ks indices provide orthogonal classification power to SDSS optical colors.
+
+**Reference:**
+- Popescu, M., et al. (2018). "MOVIS-C: A catalog of Visible-NIR colors of asteroids observed with VISTA-VHS." *Astronomy & Astrophysics*, 617, A12. doi:[10.1051/0004-6361/201833023](https://doi.org/10.1051/0004-6361/201833023)
+
+### 4.7 ML Composition Classifier
+
+A random forest classifier provides an independent composition prediction trained on spectroscopically confirmed asteroids.
+
+**Training set:** 29,697 asteroids with confirmed taxonomic classifications from LCDB/SDSS spectral surveys.
+
+**Features:** Orbital elements (a, e, i), absolute magnitude (H), albedo, SDSS color indices (g-r, r-i, i-z), MOVIS NIR colors (Y-J, J-Ks, H-Ks) where available.
+
+**Output:** Per-class probability predictions (ml_prob_C, ml_prob_S, ml_prob_M, ml_prob_V) and an overall ml_confidence score (maximum predicted probability).
+
+**Performance:** 94.4% accuracy on held-out test set (stratified split). The classifier is most valuable for objects lacking spectral data but having photometric colors and/or albedo measurements.
+
+**Dependency:** Requires scikit-learn, available via the optional `[ml]` install extra (`pip install -e ".[ml]"`).
+
+### 4.8 High-Confidence Overlays
+
+For approximately 20 well-studied asteroids with direct physical measurements, curated literature values override or refine the probabilistic composition estimates.
+
+**Radar albedo** from Shepard et al. (2010, 2015) — high radar albedo (> 0.3) is a strong indicator of metallic (M-type) composition. These measurements directly adjust the prob_M probability upward for confirmed metallic targets.
+
+**Measured bulk density** from Carry (2012) — density measurements constrain composition more tightly than spectral classification alone. High densities (> 4,000 kg/m^3) confirm metallic composition; low densities (< 2,000 kg/m^3) support carbonaceous classification.
+
+**Columns added:** `radar_albedo`, `measured_density_kg_m3`, `overlay_source`.
+
+**References:**
+- Shepard, M. K., et al. (2010). "A radar survey of M- and X-class asteroids." *Icarus*, 208(1), 221-237. doi:[10.1016/j.icarus.2010.01.017](https://doi.org/10.1016/j.icarus.2010.01.017)
+- Shepard, M. K., et al. (2015). "A radar survey of M- and X-class asteroids. III. Insights into their composition, hydration state, and structure." *Icarus*, 245, 38-55. doi:[10.1016/j.icarus.2014.09.016](https://doi.org/10.1016/j.icarus.2014.09.016)
+- Carry, B. (2012). "Density of asteroids." *Planetary and Space Science*, 73(1), 98-118. doi:[10.1016/j.pss.2012.03.009](https://doi.org/10.1016/j.pss.2012.03.009)
+
+---
+
+### 4.9 Hohmann Transfer Simulation (Web)
+
+The web frontend includes a visual Hohmann transfer trajectory simulation for mission planning visualization.
+
+**Model:** Standard two-impulse Hohmann transfer between circular coplanar orbits (Earth orbit to asteroid semi-major axis). The simulation tracks four mission phases:
+
+1. **Waiting** — spacecraft at Earth orbit, awaiting launch window
+2. **Window open** — optimal departure alignment reached
+3. **In transit** — spacecraft following the transfer ellipse (animated dot along arc)
+4. **Arrived** — spacecraft at target asteroid orbit
+
+The transfer arc is computed from the Hohmann transfer semi-major axis: `a_transfer = (r_earth + r_target) / 2`. Transfer time follows Kepler's third law: `T = pi * sqrt(a_transfer^3 / mu_sun)`.
+
+This visualization is pedagogical — it illustrates the energy cost represented by the delta-v proxy but does not replace the simplified Hohmann + inclination model used for catalog-scale ranking.
 
 ---
 
@@ -397,6 +470,8 @@ An asteroid is **viable** if its total extractable precious metal mass exceeds t
 
 Cannon, K. M., Gialich, S., & Acain, A. (2023). "Accessible Precious Metals on Asteroids." *Planetary and Space Science*, 225, 105608. doi:10.1016/j.pss.2022.105608
 
+Carry, B. (2012). "Density of asteroids." *Planetary and Space Science*, 73(1), 98-118. doi:10.1016/j.pss.2012.03.009
+
 DeMeo, F. E., & Carry, B. (2013). "The Taxonomic Distribution of Asteroids from Multi-filter All-sky Photometric Surveys." *Icarus*, 226(1), 723-741. doi:10.1016/j.icarus.2013.06.027
 
 Dunn, T. L., et al. (2010). "Principal component analysis of spectral data of ordinary chondrites." *Icarus*, 208(2), 789-797. doi:10.1016/j.icarus.2010.02.016
@@ -417,9 +492,15 @@ Mainzer, A. K., et al. (2011). "NEOWISE Observations of Near-Earth Objects: Prel
 
 Mainzer, A. K., et al. (2019). "NEOWISE Diameters and Albedos V2.0." *NASA Planetary Data System*, urn:nasa:pds:neowise_diameters_albedos::2.0. doi:10.26033/18S3-2Z54
 
+Popescu, M., et al. (2018). "MOVIS-C: A catalog of Visible-NIR colors of asteroids observed with VISTA-VHS." *Astronomy & Astrophysics*, 617, A12. doi:10.1051/0004-6361/201833023
+
 Pravec, P., & Harris, A. W. (2000). "Fast and Slow Rotation of Asteroids." *Icarus*, 148(1), 12-20. doi:10.1006/icar.2000.6482
 
 Sanchez, J. P., & McInnes, C. R. (2011). "Asteroid Resource Map for Near-Earth Space." *Journal of Spacecraft and Rockets*, 48(1), 153-165. doi:10.2514/1.49851
+
+Shepard, M. K., et al. (2010). "A radar survey of M- and X-class asteroids." *Icarus*, 215(2), 547-551. doi:10.1016/j.icarus.2010.02.002
+
+Shepard, M. K., et al. (2015). "A radar survey of M- and X-class asteroids. III." *Icarus*, 245, 38-55. doi:10.1016/j.icarus.2014.09.016
 
 Shoemaker, E. M., & Helin, E. (1979). "Earth-Approaching Asteroids as Targets for Exploration." *NASA CP-2053*, 245-256.
 

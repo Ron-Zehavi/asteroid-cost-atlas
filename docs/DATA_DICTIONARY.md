@@ -93,6 +93,22 @@ High-precision osculating elements from [JPL Horizons](https://ssd.jpl.nasa.gov/
 
 ---
 
+## Stage 1f: Ingest MOVIS-C
+
+Near-infrared color indices and probabilistic taxonomy from the [MOVIS-C catalog](https://vizier.cds.unistra.fr/) (Popescu et al. 2018). ~18K asteroids.
+
+| Column | Type | Valid Range | Description |
+|---|---|---|---|
+| `spkid` | int64 | > 0 | Join key (number + 20,000,000) |
+| `movis_yj` | float64 | any or NaN | NIR Y-J color index |
+| `movis_jks` | float64 | any or NaN | NIR J-Ks color index |
+| `movis_hks` | float64 | any or NaN | NIR H-Ks color index |
+| `movis_taxonomy` | string | MOVIS codes or NaN | MOVIS probabilistic classification |
+
+*These columns are merged during enrichment. NIR colors feed the Bayesian composition model as an additional likelihood term, particularly valuable for M-type identification.*
+
+---
+
 ## Stage 2: Clean
 
 Validation filter. No columns added. Rows removed for:
@@ -104,7 +120,7 @@ Validation filter. No columns added. Rows removed for:
 
 ## Stage 3: Enrich
 
-Merges LCDB, NEOWISE, and SDSS data, then estimates diameters from absolute magnitude.
+Merges LCDB, NEOWISE, SDSS, and MOVIS data, then estimates diameters from absolute magnitude.
 
 | Column | Type | Valid Range | Description |
 |---|---|---|---|
@@ -113,6 +129,10 @@ Merges LCDB, NEOWISE, and SDSS data, then estimates diameters from absolute magn
 | `color_gr` | float64 | any or NaN | SDSS g-r color index (from SDSS merge) |
 | `color_ri` | float64 | any or NaN | SDSS r-i color index (from SDSS merge) |
 | `color_iz` | float64 | any or NaN | SDSS i-z color index (from SDSS merge) |
+| `movis_yj` | float64 | any or NaN | MOVIS NIR Y-J color index (from MOVIS merge) |
+| `movis_jks` | float64 | any or NaN | MOVIS NIR J-Ks color index (from MOVIS merge) |
+| `movis_hks` | float64 | any or NaN | MOVIS NIR H-Ks color index (from MOVIS merge) |
+| `movis_taxonomy` | string | MOVIS codes or NaN | MOVIS probabilistic taxonomy (from MOVIS merge) |
 | `diameter_estimated_km` | float64 | > 0 or NaN | Measured or H-derived diameter. 99.9% coverage |
 | `diameter_source` | string | `"measured"`, `"neowise"`, `"estimated"`, NaN | Provenance of the diameter value |
 
@@ -156,7 +176,12 @@ Composition classification and resource valuation.
 | Column | Type | Valid Range | Description |
 |---|---|---|---|
 | `composition_class` | string | `"C"`, `"S"`, `"M"`, `"V"`, `"U"` | Inferred resource class. C=carbonaceous, S=silicaceous, M=metallic, V=basaltic, U=unknown |
-| `composition_source` | string | `"taxonomy"`, `"sdss_colors"`, `"albedo"`, `"none"` | Which classification layer assigned the class |
+| `composition_source` | string | `"taxonomy"`, `"sdss_colors"`, `"movis_nir"`, `"albedo"`, `"none"` | Which classification layer assigned the class |
+| `prob_C` | float64 | [0, 1] or NaN | Bayesian posterior probability of C-type classification |
+| `prob_S` | float64 | [0, 1] or NaN | Bayesian posterior probability of S-type classification |
+| `prob_M` | float64 | [0, 1] or NaN | Bayesian posterior probability of M-type classification |
+| `prob_V` | float64 | [0, 1] or NaN | Bayesian posterior probability of V-type classification |
+| `composition_confidence` | float64 | [0, 1] or NaN | Confidence score of composition assignment (max posterior probability) |
 | `resource_value_usd_per_kg` | float64 | >= 0 | Total commodity value per kg raw material (water + metals + precious) |
 | `water_value_usd_per_kg` | float64 | >= 0 | Water extraction value contribution ($/kg) |
 | `metals_value_usd_per_kg` | float64 | >= 0 | Bulk metal extraction value contribution ($/kg) |
@@ -169,8 +194,48 @@ Composition classification and resource valuation.
 | `osmium_ppm` | float64 | >= 0 | Osmium concentration (ppm) |
 | `ruthenium_ppm` | float64 | >= 0 | Ruthenium concentration (ppm) |
 | `gold_ppm` | float64 | >= 0 | Gold concentration (ppm) |
+| `platinum_ppm_low` | float64 | >= 0 | Platinum concentration P10 estimate (ppm) |
+| `platinum_ppm_high` | float64 | >= 0 | Platinum concentration P90 estimate (ppm) |
+| `palladium_ppm_low` | float64 | >= 0 | Palladium concentration P10 estimate (ppm) |
+| `palladium_ppm_high` | float64 | >= 0 | Palladium concentration P90 estimate (ppm) |
+| `rhodium_ppm_low` | float64 | >= 0 | Rhodium concentration P10 estimate (ppm) |
+| `rhodium_ppm_high` | float64 | >= 0 | Rhodium concentration P90 estimate (ppm) |
+| `iridium_ppm_low` | float64 | >= 0 | Iridium concentration P10 estimate (ppm) |
+| `iridium_ppm_high` | float64 | >= 0 | Iridium concentration P90 estimate (ppm) |
+| `osmium_ppm_low` | float64 | >= 0 | Osmium concentration P10 estimate (ppm) |
+| `osmium_ppm_high` | float64 | >= 0 | Osmium concentration P90 estimate (ppm) |
+| `ruthenium_ppm_low` | float64 | >= 0 | Ruthenium concentration P10 estimate (ppm) |
+| `ruthenium_ppm_high` | float64 | >= 0 | Ruthenium concentration P90 estimate (ppm) |
+| `gold_ppm_low` | float64 | >= 0 | Gold concentration P10 estimate (ppm) |
+| `gold_ppm_high` | float64 | >= 0 | Gold concentration P90 estimate (ppm) |
 
-**Classification priority:** taxonomy > spectral_type > SDSS g-r/r-i colors > albedo ranges > "U" (unknown).
+**Classification priority:** taxonomy > spectral_type > SDSS g-r/r-i colors > MOVIS NIR colors > albedo ranges > "U" (unknown).
+
+---
+
+## Stage 6b: ML Classifier
+
+Random forest composition classifier trained on 29,697 spectroscopically confirmed asteroids (94.4% accuracy). Requires optional `[ml]` dependency (scikit-learn).
+
+| Column | Type | Valid Range | Description |
+|---|---|---|---|
+| `ml_prob_C` | float64 | [0, 1] or NaN | ML-predicted probability of C-type classification |
+| `ml_prob_S` | float64 | [0, 1] or NaN | ML-predicted probability of S-type classification |
+| `ml_prob_M` | float64 | [0, 1] or NaN | ML-predicted probability of M-type classification |
+| `ml_prob_V` | float64 | [0, 1] or NaN | ML-predicted probability of V-type classification |
+| `ml_confidence` | float64 | [0, 1] or NaN | ML classifier confidence (max predicted class probability) |
+
+---
+
+## Stage 6c: High-Confidence Overlays
+
+Curated radar albedo (Shepard et al. 2010, 2015) and measured density (Carry 2012) for ~20 well-studied asteroids. Adjusts `prob_*` columns for confirmed metallic/carbonaceous targets.
+
+| Column | Type | Valid Range | Description |
+|---|---|---|---|
+| `radar_albedo` | float64 | > 0 or NaN | Radar albedo from Shepard et al. (2010, 2015). High values (> 0.3) indicate metallic surface |
+| `measured_density_kg_m3` | float64 | > 0 or NaN | Measured bulk density (kg/m^3) from Carry (2012) |
+| `overlay_source` | string | citation or NaN | Literature source for the overlay data |
 
 ---
 

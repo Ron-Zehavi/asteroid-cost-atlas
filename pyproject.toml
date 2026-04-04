@@ -40,6 +40,7 @@ asteroid-enrich = "asteroid_cost_atlas.ingest.enrich:main"
 asteroid-ingest-lcdb = "asteroid_cost_atlas.ingest.ingest_lcdb:main"
 asteroid-ingest-neowise = "asteroid_cost_atlas.ingest.ingest_neowise:main"
 asteroid-ingest-spectral = "asteroid_cost_atlas.ingest.ingest_spectral:main"
+asteroid-ingest-movis = "asteroid_cost_atlas.ingest.ingest_movis:main"
 asteroid-ingest-horizons = "asteroid_cost_atlas.ingest.ingest_horizons:main"
 asteroid-score-orbital = "asteroid_cost_atlas.scoring.orbital:main"
 asteroid-score-physical = "asteroid_cost_atlas.scoring.physical:main"
@@ -57,6 +58,9 @@ dev = [
     "pandas-stubs",
 ]
 
+ml = [
+    "scikit-learn>=1.4",
+]
 web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
@@ -75,6 +79,10 @@ select = ["E", "F", "I", "UP"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

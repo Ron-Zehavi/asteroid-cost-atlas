@@ -197,6 +197,44 @@ def merge_neowise(df: pd.DataFrame, neowise_path: Path) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
+# MOVIS NIR merge
+# ---------------------------------------------------------------------------
+
+
+def _latest_movis_parquet(raw_dir: Path) -> Path | None:
+    """Return the latest movis_*.parquet, or None if not yet ingested."""
+    candidates = sorted(raw_dir.glob("movis_*.parquet"))
+    return candidates[-1] if candidates else None
+
+
+def merge_movis(df: pd.DataFrame, movis_path: Path) -> pd.DataFrame:
+    """
+    Merge MOVIS near-IR color indices and taxonomy into the catalog.
+
+    Adds ``movis_yj``, ``movis_jh``, ``movis_hks`` color columns and
+    optionally ``movis_taxonomy`` used by the composition stage.
+    """
+    movis = pd.read_parquet(movis_path)
+    logger.info("Loaded %d MOVIS records from %s", len(movis), movis_path.name)
+
+    result = df.copy()
+    keep_cols = ["spkid"]
+    for col in ("movis_yj", "movis_jks", "movis_hks", "movis_taxonomy"):
+        if col in movis.columns:
+            keep_cols.append(col)
+
+    movis_subset = movis[keep_cols].copy()
+    merged = result.merge(movis_subset, on="spkid", how="left")
+
+    n_matched = 0
+    if "movis_yj" in merged.columns:
+        n_matched = int(merged["movis_yj"].notna().sum())
+    logger.info("MOVIS merge: %d asteroids matched with NIR data", n_matched)
+
+    return merged
+
+
+# ---------------------------------------------------------------------------
 # SDSS spectral merge
 # ---------------------------------------------------------------------------
 
@@ -381,7 +419,14 @@ def main() -> int:
     else:
         logger.info("No SDSS parquet found — skipping spectral enrichment")
 
-    # Layer 4: H→diameter estimation (uses LCDB+NEOWISE-enriched albedo if available)
+    # Layer 4: MOVIS NIR merge (if available)
+    movis_path = _latest_movis_parquet(raw_dir)
+    if movis_path is not None:
+        df = merge_movis(df, movis_path)
+    else:
+        logger.info("No MOVIS parquet found — skipping NIR enrichment")
+
+    # Layer 5: H→diameter estimation (uses LCDB+NEOWISE-enriched albedo if available)
     result = add_diameter_estimate(df)
 
     measured = (result["diameter_source"] == "measured").sum()

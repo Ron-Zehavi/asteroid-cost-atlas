@@ -1,4 +1,4 @@
-.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas query serve web-dev web-build docker lint format typecheck test clean clean-outputs data-info help
+.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-movis ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas query serve web-dev web-build docker lint format typecheck test clean clean-outputs data-info help
 
 PYTHON_VERSION := $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
 MIN_PYTHON := 3.11
@@ -14,8 +14,8 @@ install: check-python ## Install package and dev dependencies
 	pip install -e ".[dev]"
 
 # Pipeline stages must run in this order:
-#   ingest → ingest-lcdb → ingest-neowise → ingest-spectral → clean-data → enrich → ingest-horizons → score-orbital → score-physical → score-composition → atlas
-pipeline: ingest ingest-lcdb ingest-neowise ingest-spectral clean-data enrich ingest-horizons score-orbital score-physical score-composition atlas ## Run full pipeline end-to-end
+#   ingest → ingest-lcdb → ingest-neowise → ingest-spectral → ingest-movis → clean-data → enrich → ingest-horizons → score-orbital → score-physical → score-composition → atlas
+pipeline: ingest ingest-lcdb ingest-neowise ingest-spectral ingest-movis clean-data enrich ingest-horizons score-orbital score-physical score-composition atlas ## Run full pipeline end-to-end
 
 ingest: ## Fetch raw SBDB catalog → data/raw/sbdb_*.csv
 	python -m asteroid_cost_atlas.ingest.ingest_sbdb
@@ -28,6 +28,9 @@ ingest-neowise: ## Fetch NEOWISE diameters/albedos → data/raw/neowise_*.parque
 
 ingest-spectral: ## Fetch SDSS MOC photometry → data/raw/sdss_moc_*.parquet
 	python -m asteroid_cost_atlas.ingest.ingest_spectral
+
+ingest-movis: ## Fetch MOVIS-C NIR taxonomy → data/raw/movis_*.parquet
+	python -m asteroid_cost_atlas.ingest.ingest_movis
 
 ingest-horizons: ## Fetch JPL Horizons elements for NEAs → data/raw/horizons_*.parquet
 	python -m asteroid_cost_atlas.ingest.ingest_horizons
@@ -76,6 +79,9 @@ docker: ## Build Docker image
 
 docker-run: ## Run Docker container on port 8000
 	docker run -p 8000:8000 asteroid-cost-atlas
+
+audit: ## Run project audit and data integrity check
+	python scripts/audit.py
 
 lint: ## Lint with ruff
 	ruff check src tests
