@@ -12,7 +12,7 @@ Thousands of asteroids are cataloged. Very few have been evaluated systematicall
 
 `asteroid-cost-atlas` fills that gap: a structured, open pipeline that takes raw SBDB data and produces a ranked, feature-rich dataset answering the question — *which asteroids are cheapest to reach, easiest to mine, and most economically promising?*
 
-Inspired by the accessibility and value estimates pioneered by [Asterank](https://www.asterank.com), this project focuses on a similar but slightly improved goal: building a transparent, reproducible pipeline that evaluates asteroid mission accessibility across the full NASA catalog (~1.5 million objects) using orbital mechanics proxies such as inclination penalties, Tisserand stability, and rotation/regolith feasibility signals. Rather than producing a single heuristic profitability score, it constructs a research-grade dataset from primary sources like the [SBDB Query API](https://ssd-api.jpl.nasa.gov/doc/sbdb_query.html) and the [LCDB](https://minplanobs.org/mpinfo/php/lcdb.php), with planned higher-fidelity integrations from [NEOWISE](https://sbn.psi.edu/pds/resource/neowisediam.html) and [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/), enabling systematic comparison, extension with new surveys, and engineering-oriented target screening at scale.
+Inspired by the accessibility and value estimates pioneered by [Asterank](https://www.asterank.com), this project focuses on a similar but slightly improved goal: building a transparent, reproducible pipeline that evaluates asteroid mission accessibility across the full NASA catalog (~1.5 million objects) using orbital mechanics proxies such as inclination penalties, Tisserand stability, and rotation/regolith feasibility signals. Rather than producing a single heuristic profitability score, it constructs a research-grade dataset from primary sources like the [SBDB Query API](https://ssd-api.jpl.nasa.gov/doc/sbdb_query.html) and the [LCDB](https://minplanobs.org/mpinfo/php/lcdb.php), with integrations from [NEOWISE](https://sbn.psi.edu/pds/resource/neowisediam.html), [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/), [SDSS MOC](https://faculty.washington.edu/ivezic/sdssmoc.html), and [MOVIS-C](https://cdsarc.cds.unistra.fr/viz-bin/cat/J/A+A/617/A12), enabling systematic comparison, extension with new surveys, and engineering-oriented target screening at scale.
 
 ---
 
@@ -184,6 +184,10 @@ sbdb_fields:
   - a           # semi-major axis (AU)
   - e           # eccentricity
   - i           # inclination (deg)
+  - om          # longitude of ascending node (deg)
+  - w           # argument of perihelion (deg)
+  - ma          # mean anomaly (deg)
+  - epoch       # epoch of osculating elements (MJD)
   - H           # absolute magnitude — proxy for diameter
   - G           # magnitude slope parameter
   - diameter    # measured diameter (km), sparse
@@ -294,7 +298,7 @@ Available `make` targets:
 ## Current Features
 
 **Ingestion** ✓
-- Full SBDB catalog fetch via paginated API requests (~1.5M objects, 15 fields)
+- Full SBDB catalog fetch via paginated API requests (~1.5M objects, 19 fields)
 - LCDB integration — 31K+ rotation periods with quality filtering (U >= 2-)
 - NEOWISE integration — ~164K measured diameters and geometric albedos from thermal infrared
 - SDSS MOC integration — ~40K photometric color indices for composition inference
@@ -347,16 +351,17 @@ Available `make` targets:
   - **Precious metals** — PGMs+Au: M-type 42 ppm (Cannon 2023 50th %ile), $35,000/kg spot
 - Per-class total value: C=$50/kg (water-dominated), M=$25/kg (metals), S=$7/kg, V=$4/kg
 
-**Economic scoring with mission-architecture cost model** ✓
+**Economic scoring with mission-architecture cost model** ✓ *(backend data — not yet exposed in UI, prep for Mission Planner)*
 - Mass estimation from diameter + composition-specific density (C: 1,300, S: 2,700, M: 5,300 kg/m³)
 - Specimen-return model: selectively extract precious metals (Pt, Pd, Rh, Ir, Os, Ru, Au)
 - Subsystem-based mission cost: $300M minimum (spacecraft + payload + ops) + transport + extraction
 - Per-asteroid break-even analysis: minimum extraction to cover $300M fixed cost
-- **10,310 asteroids** with positive per-kg margin; **498 viable** (enough extractable material)
+- **10,336 asteroids** with positive per-kg margin; **609 viable** (enough extractable material)
 - Every mission and campaign individually profitable by construction
 - Per-metal break-even: kg of each specific metal needed to justify mission
-- `economic_priority_rank` — strict ordering with deterministic tie-breaking
-- Final atlas: 1,519,870 asteroids scored
+- `economic_priority_rank` — strict ordering with deterministic tie-breaking (used as default table sort)
+- `is_viable` — viability flag (used for row highlighting and filtering in UI)
+- Final atlas: 1,521,843 asteroids scored across 107 columns
 
 **DuckDB query layer** ✓
 - Zero-server SQL over Parquet via stable `atlas` view
@@ -369,16 +374,14 @@ Available `make` targets:
 - FastAPI REST API wrapping the CostAtlasDB query layer (`src/asteroid_cost_atlas/api/`)
 - Endpoints: `/api/stats`, `/api/asteroids` (paginated, filterable), `/api/asteroids/{spkid}`, `/api/asteroids/top`, `/api/asteroids/nea`, `/api/search?q=`, `/api/charts/delta-v`, `/api/charts/composition`, `/api/health`
 - React frontend (`web/`) with Vite + TypeScript
-- AsteroidTable with extraction quantities, 1t/10t/100t profit columns, and composition confidence column
-- AsteroidDetail drawer with mining scenario analysis
-- FilterBar (default Max Dv = 3 km/s), SearchBox, StatsCards, ComparePanel components
+- AsteroidTable with collapsible metals breakdown (7 base columns + expandable 7 precious metal columns), viable row highlighting, sortable by name/confidence/diameter/delta-v
+- FilterBar (composition class, NEO, viability, max delta-v default 3 km/s), SearchBox, StatsCards (total/scored/NEA/min/median delta-v)
 - 3D solar system scene (react-three-fiber / Three.js): Sun + 8 planets with Kepler propagation, asteroid point clouds color-coded by composition/delta-v/viability/confidence, orbit line highlight on selection, camera focus on click
 - Orbit zone shading: NEO Region, Main Belt, Jupiter Trojans bands
-- Transfer trajectory simulation: Hohmann transfer arcs with 4 mission phases (waiting, window_open, in_transit, arrived) and animated spacecraft dot
+- Transfer trajectory simulation: Hohmann transfer arcs with 4 mission phases (waiting, window_open, in_transit, arrived) and animated spacecraft model
 - About modal with project vision, methodology, and references
-- TimelineSlider for epoch propagation (2000-2035)
-- Comparison mode — pin up to 3 asteroids for side-by-side metrics
-- 17 API tests, 87.3% total coverage, 27 mypy-clean source files
+- TimelineSlider for epoch propagation with playback controls (pause, 10 d/s, 100 d/s)
+- 17 API tests, 18 test modules, 30 source files
 
 **Config system** ✓
 - YAML-defined fields with Pydantic validation (`extra="forbid"`)
@@ -400,6 +403,10 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 | `a_au` | SBDB | Semi-major axis (AU) |
 | `eccentricity` | SBDB | Orbital eccentricity |
 | `inclination_deg` | SBDB | Orbital inclination (degrees) |
+| `long_asc_node_deg` | SBDB | Longitude of ascending node (degrees) |
+| `arg_perihelion_deg` | SBDB | Argument of perihelion (degrees) |
+| `mean_anomaly_deg` | SBDB | Mean anomaly (degrees) |
+| `epoch_mjd` | SBDB | Epoch of osculating elements (Modified Julian Date) |
 | `abs_magnitude` | SBDB | Absolute magnitude H (99.8% coverage) |
 | `magnitude_slope` | SBDB | Magnitude slope parameter G (sparse) |
 | `diameter_km` | SBDB | Measured diameter (km) — 9.2% coverage |
@@ -419,8 +426,10 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 | `diameter_source` | Provenance: "measured", "neowise", or "estimated" |
 | `rotation_source` | Provenance: "sbdb" or "lcdb" |
 | `taxonomy` | LCDB taxonomic class (C, S, V, B, M, etc.) — 2% coverage |
-| `color_gr` | SDSS g-r color index (sparse — ~40K objects) |
-| `color_ri` | SDSS r-i color index (sparse — ~40K objects) |
+| `movis_yj` | MOVIS-C Y-J near-IR color index (sparse — ~18K objects) |
+| `movis_jks` | MOVIS-C J-Ks near-IR color index (sparse — ~18K objects) |
+| `movis_hks` | MOVIS-C H-Ks near-IR color index (sparse — ~18K objects) |
+| `movis_taxonomy` | MOVIS-C probabilistic taxonomic classification (sparse — ~18K objects) |
 
 **Orbital scoring** (added by `make score-orbital`):
 
@@ -443,33 +452,54 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 
 | Column | Description |
 |---|---|
-| `composition_class` | C/S/M/V/U — inferred from taxonomy, spectral type, SDSS colors, or albedo |
-| `composition_source` | Provenance: "taxonomy", "sdss_colors", "albedo", or "none" |
+| `prob_C`, `prob_S`, `prob_M`, `prob_V` | Bayesian class probability vectors (sum to ~1.0) |
+| `composition_class` | C/S/M/V/U — inferred from taxonomy, spectral type, SDSS colors, MOVIS NIR, or albedo |
+| `composition_confidence` | Classification confidence (0 = prior only, 1 = confirmed taxonomy) |
+| `composition_source` | Provenance: "taxonomy", "sdss_colors", "movis_nir", "albedo", or "none" |
+| `specimen_value_per_kg` | Weighted specimen value from 7 precious metals at spot prices |
+| `{metal}_ppm`, `{metal}_ppm_low`, `{metal}_ppm_high` | P50/P10/P90 concentration for each of 7 metals (Pt, Pd, Rh, Ir, Os, Ru, Au) |
 | `resource_value_usd_per_kg` | Total $/kg (sum of water + metals + precious) |
 | `water_value_usd_per_kg` | Water contribution to value (C-type: $45/kg, others: $0) |
 | `metals_value_usd_per_kg` | Bulk metals contribution (M-type: $24.65/kg) |
 | `precious_value_usd_per_kg` | PGM+Au contribution (M-type: $0.44/kg) |
+| `ml_prob_C`, `ml_prob_S`, `ml_prob_M`, `ml_prob_V` | ML classifier probability vectors (optional `[ml]` dependency) |
+| `ml_confidence` | ML classifier confidence score |
+| `radar_albedo` | Curated radar albedo overlay for ~20 well-studied targets |
+| `measured_density_kg_m3` | Curated measured density overlay |
+| `overlay_source` | Overlay provenance (radar/density source) |
 
-**Economic scoring** (added by `make atlas`):
+**Economic scoring** (added by `make atlas`) — *backend data, prep for Mission Planner; only `economic_priority_rank` and `is_viable` are currently exposed in the UI*:
 
 | Column | Description |
 |---|---|
 | `estimated_mass_kg` | Mass from diameter + composition-specific density |
 | `mission_cost_usd_per_kg` | Falcon Heavy round-trip: $2,700 × exp(2 × dv / Ve) |
+| `accessibility` | Normalised accessibility score from delta-v |
 | `extractable_{metal}_kg` | Extractable kg per metal (platinum, palladium, rhodium, iridium, osmium, ruthenium, gold) |
+| `break_even_{metal}_kg` | Per-metal break-even: kg needed to justify $300M mission |
 | `total_extractable_precious_kg` | Sum of all extractable precious metals (kg) |
 | `total_precious_value_usd` | Total value of extractable precious metals (USD) |
-| `specimen_profit_per_kg` | Specimen value − transport − $5K overhead (>$0 = profitable) |
-| `mission_1t_revenue_usd` | Revenue from a 1-ton return mission |
-| `mission_1t_profit_usd` | Profit from a 1-ton return mission |
+| `margin_per_kg` | Specimen value − transport − $5K overhead (>$0 = profitable) |
+| `break_even_kg` | Minimum extraction to cover $300M fixed cost |
+| `min_viable_kg` | Minimum material for a single viable mission |
+| `is_viable` | Boolean: asteroid has enough material to break even |
+| `missions_supported` | Total extraction ÷ mission capacity |
+| `mission_revenue_usd` | Revenue from a single mission |
+| `mission_cost_usd` | Cost of a single mission |
+| `mission_profit_usd` | Profit from a single mission |
+| `campaign_revenue_usd` | Total revenue across all supported missions |
+| `campaign_cost_usd` | Total cost across all supported missions |
+| `campaign_profit_usd` | Total profit across all supported missions |
 | `economic_score` | precious_value × accessibility (for ranking) |
-| `economic_priority_rank` | Strict ranking (1 = best target) — 1,519,870 scored |
+| `economic_priority_rank` | Strict ranking (1 = best target) — 1,521,843 scored |
 
 > **Full documentation:** See [docs/DATA_DICTIONARY.md](./docs/DATA_DICTIONARY.md) for the complete field reference across all pipeline stages, and [docs/METHODOLOGY.md](./docs/METHODOLOGY.md) for the scientific methodology with full citations.
 
 ---
 
 ## Resource Valuation Methodology
+
+> **Note:** The economic model powers the backend scoring pipeline. The resulting `economic_priority_rank` and `is_viable` fields are exposed in the web UI for table sorting and filtering. The full mission economics (break-even analysis, campaign profits, per-metal breakdowns) will be surfaced in the planned Mission Planner (Phase 3).
 
 The economic model is built on measured meteorite compositions, not theoretical estimates.
 
@@ -542,9 +572,9 @@ Extraction yield: 30%. Extraction overhead: $5,000/kg.
 
 ### Key findings
 
-**10,310 asteroids** have positive per-kg margin. When the full fixed cost ($300M mission + system mass transport) is included, **498 are viable** — containing enough extractable precious metals for at least one profitable mission. Total of **23,127 profitable missions** supported, with every mission individually profitable.
+**10,336 asteroids** have positive per-kg margin. When the full fixed cost ($300M mission + system mass transport) is included, **609 are viable** — containing enough extractable precious metals for at least one profitable mission. Total of **24,142 profitable missions** supported, with every mission individually profitable.
 
-Top campaign profit: **$371M** across 11 missions. Break-even payload varies by delta-v:
+Top campaign profit: **$376M**. Break-even payload varies by delta-v:
 - dv < 1 km/s: ~4,300 kg break-even (margin ~$81K/kg)
 - dv = 3 km/s: ~5,500 kg break-even (margin ~$64K/kg)
 - dv > ~5.5 km/s: impossible (transport exceeds specimen value)
@@ -560,9 +590,9 @@ Per asteroid, the atlas computes:
 
 ## Roadmap
 
-### Phase 1 — Data Pipeline (current)
+### Phase 1 — Data Pipeline (complete)
 
-- [x] Ingestion — paginated SBDB fetch (15 fields), caching, metadata logging
+- [x] Ingestion — paginated SBDB fetch (19 fields), caching, metadata logging
 - [x] Config system — typed YAML + `.env` loader with Pydantic
 - [x] Data cleaning stage — rule-based filter with per-rule removal logging
 - [x] Data enrichment — LCDB merge, H→diameter estimation (99.9% coverage)
@@ -573,7 +603,7 @@ Per asteroid, the atlas computes:
 - [x] CI/CD — GitHub Actions with Python 3.11/3.12 matrix, automated deploy to AWS ECS on merge to main
 - [x] Composition proxy module — C/S/M/V classification from taxonomy + albedo
 - [x] Economic scoring engine — mass × resource value × accessibility ranking
-- [x] Atlas assembly — 33-column unified dataset with `economic_priority_rank`
+- [x] Atlas assembly — 107-column unified dataset with `economic_priority_rank`
 - [x] Interactive notebook — Jupyter explorer with 10 query sections
 - [x] NEOWISE integration — ~164K measured diameters/albedos for quality uplift
 - [x] Taxonomy-aware albedo priors — class-specific pV (C: 0.06, S: 0.25, M: 0.14, V: 0.35)
@@ -581,15 +611,15 @@ Per asteroid, the atlas computes:
 - [x] Spectral catalog joins — SDSS MOC photometry for improved composition signals
 - [x] MOVIS-C integration — near-IR color indices and probabilistic taxonomy (~18K objects)
 
-### Phase 2 — Interactive Mission Visualization Platform
+### Phase 2 — Interactive Mission Visualization Platform (complete)
 
-The transition from static dataset to decision-support interface. A browser-based tool that lets users explore the atlas visually and plan missions interactively.
+The transition from static dataset to decision-support interface. A browser-based tool that lets users explore the atlas visually.
 
 **Solar system scene**
 - [x] 3D browser-based scene — Sun, planets (Mercury-Neptune), and asteroid belt rendered in real scale
 - [x] Asteroid positions computed from Keplerian elements (a, e, i, longitude of ascending node, argument of perihelion)
-- [x] Color-coded by atlas score (delta-v, economic priority, composition type)
-- [x] Filterable overlays — NEOs only, T_J range, diameter range, orbit class
+- [x] Color-coded by 4 modes: composition class, delta-v, viability, confidence
+- [x] Filterable overlays — composition class, NEO, viability, max delta-v
 
 **Timeline and orbital motion**
 - [x] Scrollable time slider — animate orbital positions across months/years
@@ -597,10 +627,9 @@ The transition from static dataset to decision-support interface. A browser-base
 - [x] Playback controls — play (10 d/s), fast-forward (100 d/s), pause, jump to date
 - [x] Smooth animation via useFrame (60fps continuous motion)
 
-**Asteroid selection and detail panel**
+**Asteroid selection**
 - [x] Click/search any asteroid to center view and show orbit
 - [x] Orbit visualization — highlight the selected asteroid's full elliptical orbit with km + period labels
-- [x] Per-metal resource breakdown in table (Pt, Pd, Rh, Ir, Os, Ru, Au with kg and $ value)
 
 **Visual enhancements**
 - [x] Milky Way galaxy skybox (procedural, tilted ~60 deg matching ecliptic-to-galactic angle)
@@ -616,9 +645,11 @@ The transition from static dataset to decision-support interface. A browser-base
 
 ### Phase 3 — Mission Planner (planned)
 
+- [x] **Transfer orbit visualization** — Hohmann transfer arcs in 3D scene with 4 mission phases (waiting, window_open, in_transit, arrived) and animated spacecraft model
+- [ ] **Asteroid detail panel** — wire up AsteroidDetail component (exists but not yet rendered) with per-metal resource breakdown and mission scenario analysis
+- [ ] **Comparison mode** — wire up ComparePanel component (exists but not yet rendered) for side-by-side asteroid metrics
 - [ ] **Mission Planner** — select asteroid, configure mission parameters (payload mass, vehicle, extraction yield), compute cost/revenue/profit per scenario
-- [ ] **Multi-scenario comparison** — side-by-side 1t / 10t / 100t / custom payload analysis
-- [ ] **Transfer orbit visualization** — show Hohmann transfer path in 3D scene
+- [ ] **Multi-scenario comparison** — side-by-side 1t / 10t / 100t / custom payload analysis (backend data exists, UI needed)
 - [ ] **Launch window analysis** — porkchop plots, per-window delta-v breakdown
 - [ ] **Campaign optimizer** — given a fleet budget, find optimal target portfolio
 
@@ -653,7 +684,7 @@ See [docs/CICD.md](./docs/CICD.md) for full setup instructions and AWS configura
 
 ## Long-term Vision
 
-Become a reproducible, openly maintained reference dataset **and interactive mission-planning tool** for asteroid economic accessibility. Phase 1 builds the data foundation — a scored, enriched catalog updated on a regular cadence as NASA catalogs are refreshed, extensible with new sources (NEOWISE, MOVIS-C, spectral surveys). Phase 2 puts that data into the hands of mission planners through a browser-based visualization platform where users can explore the solar system, select targets, and evaluate launch windows — turning a static dataset into a living decision-support interface.
+Become a reproducible, openly maintained reference dataset **and interactive mission-planning tool** for asteroid economic accessibility. Phase 1 builds the data foundation — a scored, enriched catalog integrating six primary sources (SBDB, LCDB, NEOWISE, SDSS MOC, MOVIS-C, JPL Horizons) and updated on a regular cadence as NASA catalogs are refreshed. Phase 2 puts that data into the hands of mission planners through a browser-based 3D visualization platform where users can explore the solar system, filter and sort targets, and view transfer trajectories. Phase 3 will surface the full economic model — break-even analysis, campaign profits, and per-metal resource breakdowns — through an interactive Mission Planner.
 
 ---
 
