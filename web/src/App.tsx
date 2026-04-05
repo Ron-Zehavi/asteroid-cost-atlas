@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { AsteroidTable } from './components/AsteroidTable';
 import { AsteroidDetail } from './components/AsteroidDetail';
 import { FilterBar } from './components/FilterBar';
@@ -26,6 +26,23 @@ export default function App() {
   const [dayOffset, setDayOffset] = useState(todayOffset);
   const [speed, setSpeed] = useState<PlaySpeed>(10);
   const [showAbout, setShowAbout] = useState(false);
+  const [panelWidth, setPanelWidth] = useState(40); // table panel width %
+  const dragging = useRef(false);
+  const mainRef = useRef<HTMLDivElement>(null);
+
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current || !mainRef.current) return;
+      const rect = mainRef.current.getBoundingClientRect();
+      const pct = ((ev.clientX - rect.left) / rect.width) * 100;
+      setPanelWidth(Math.min(70, Math.max(20, pct)));
+    };
+    const onUp = () => { dragging.current = false; window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  }, []);
 
   // Compute launch windows across full timeline for selected asteroid
   const selectedWindows = useMemo(() => {
@@ -57,8 +74,8 @@ export default function App() {
       <StatsCards stats={stats} />
       <FilterBar filters={filters} onUpdate={updateFilters} />
 
-      <div className="main-content">
-        <div className={`table-panel${selected ? ' table-panel--detail' : ''}`}>
+      <div className="main-content" ref={mainRef}>
+        <div className={`table-panel${selected ? ' table-panel--detail' : ''}`} style={{ width: `${panelWidth}%` }}>
           {selected ? (
             <>
               <div className="selected-header">
@@ -107,6 +124,8 @@ export default function App() {
             />
           )}
         </div>
+
+        <div className="panel-resizer" onMouseDown={onResizeStart} />
 
         <div className="scene-panel">
           <SolarSystem

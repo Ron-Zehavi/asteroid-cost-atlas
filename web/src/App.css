@@ -133,9 +133,21 @@ body {
 
 /* Table panel */
 .table-panel {
-  flex: 1;
+  flex: none;
   overflow: auto;
-  min-width: 500px;
+  min-width: 250px;
+}
+
+/* Draggable resizer between panels */
+.panel-resizer {
+  width: 5px;
+  cursor: col-resize;
+  background: var(--border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.panel-resizer:hover, .panel-resizer:active {
+  background: var(--accent);
 }
 
 .asteroid-table {
@@ -195,8 +207,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 300px;
-  border-left: 1px solid var(--border);
+  min-width: 200px;
 }
 .scene-placeholder {
   color: var(--text-dim);
