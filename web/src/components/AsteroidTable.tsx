@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Asteroid } from '../types/asteroid';
 import { extractionInventory, METALS, METAL_PRICES } from '../utils/mining';
 
@@ -87,12 +88,15 @@ export function AsteroidTable({
   asteroids, total, loading, sort, order, offset, limit,
   onSort, onNext, onPrev, onSelect,
 }: Props) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleCols = expanded ? COLUMNS : BASE_COLUMNS;
+
   return (
     <div className="asteroid-table-container">
       <table className="asteroid-table">
         <thead>
           <tr>
-            {COLUMNS.map((col) => (
+            {visibleCols.map((col) => (
               <th
                 key={col.key}
                 onClick={col.sortable ? () => onSort(col.key) : undefined}
@@ -103,19 +107,27 @@ export function AsteroidTable({
                 {sort === col.key && (order === 'asc' ? ' ↑' : ' ↓')}
               </th>
             ))}
+            <th
+              className="metals-toggle"
+              onClick={() => setExpanded(!expanded)}
+              title={expanded ? 'Collapse metals breakdown' : 'Show precious metals breakdown'}
+            >
+              {expanded ? '◂' : 'Metals ▸'}
+            </th>
           </tr>
         </thead>
         <tbody>
           {loading ? (
-            <tr><td colSpan={COLUMNS.length} className="loading">Loading...</td></tr>
+            <tr><td colSpan={visibleCols.length + 1} className="loading">Loading...</td></tr>
           ) : asteroids.length === 0 ? (
-            <tr><td colSpan={COLUMNS.length} className="loading">No results</td></tr>
+            <tr><td colSpan={visibleCols.length + 1} className="loading">No results</td></tr>
           ) : (
             asteroids.map((a) => (
               <tr key={a.spkid} onClick={() => onSelect(a)} className={a.is_viable ? 'viable' : ''}>
-                {COLUMNS.map((col) => (
+                {visibleCols.map((col) => (
                   <td key={col.key} className={col.className}>{col.render(a)}</td>
                 ))}
+                <td />
               </tr>
             ))
           )}
