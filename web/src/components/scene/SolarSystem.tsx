@@ -101,6 +101,9 @@ function FocusTracker({ focusOverrideRef, controls, dayOffset, selected }: {
     if (!controls.current) return;
     const override = focusOverrideRef.current;
 
+    // Sun = stay at origin (static, no tracking needed)
+    if (override === 'Sun') return;
+
     // Planet name = track that planet
     if (override && override !== 'spacecraft') {
       const planet = PLANET_ELEMENTS.find((p) => p.name === override);
@@ -205,6 +208,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
 
   const handleSunClick = useCallback(() => {
     if (!controlsRef.current) return;
+    focusOverrideRef.current = 'Sun';
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
   }, []);

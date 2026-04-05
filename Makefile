@@ -1,4 +1,7 @@
-.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-movis ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas query serve web-dev web-build docker lint format typecheck test clean clean-outputs data-info help
+.PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-movis
+.PHONY: ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas
+.PHONY: query serve web-dev web-build web-test test test-all
+.PHONY: docker lint format typecheck clean clean-outputs data-info help
 
 PYTHON_VERSION := $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
 MIN_PYTHON := 3.11
@@ -95,8 +98,14 @@ format: ## Format with ruff
 typecheck: ## Type-check with mypy
 	mypy src
 
-test: ## Run tests with coverage
+test: ## Run Python tests with coverage
 	pytest
+
+web-test: ## Run web frontend tests (vitest)
+	cd web && npm test
+
+test-all: test web-test ## Run all tests (Python + web)
+	@echo "All tests passed."
 
 clean-outputs: ## Remove processed Parquet outputs (keeps raw data)
 	rm -f data/processed/sbdb_clean_*.parquet
