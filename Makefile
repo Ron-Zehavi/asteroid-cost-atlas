@@ -1,7 +1,7 @@
 .PHONY: install pipeline ingest ingest-lcdb ingest-neowise ingest-spectral ingest-movis
 .PHONY: ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas
 .PHONY: query serve web-dev web-build web-test test test-all
-.PHONY: docker lint format typecheck clean clean-outputs data-info help
+.PHONY: docker lint format typecheck clean clean-outputs data-info help ship
 
 PYTHON_VERSION := $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
 MIN_PYTHON := 3.11
@@ -120,6 +120,9 @@ data-info: ## Show available pipeline outputs and their fetch metadata
 	@echo ""
 	@echo "=== Ingest metadata ==="
 	@ls data/raw/metadata/*.metadata.json 2>/dev/null | tail -1 | xargs cat 2>/dev/null || echo "  (none)"
+
+ship: ## Run all checks, push branch, and open PR to main
+	TITLE="$(TITLE)" ./scripts/ship.sh $(TITLE)
 
 clean: ## Remove build artifacts and caches
 	rm -rf dist build .eggs

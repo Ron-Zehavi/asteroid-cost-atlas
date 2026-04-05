@@ -160,7 +160,7 @@ export function TransferArc({ asteroid, dayOffset, onClickLabel }: Props) {
   if (scene.phase === 'waiting') {
     return (
       <Html position={scene.labelPos} center>
-        <div style={{ ...labelStyle('#555566'), cursor: 'pointer' }} onClick={() => onClickLabel?.(scene.labelPos)}>
+        <div style={{ ...labelStyle('#555566'), cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onClickLabel?.(scene.labelPos); }}>
           <div style={{ fontSize: '10px', color: '#888899' }}>
             Next launch window in <b>{Math.round(scene.daysUntil)}</b> days
           </div>
@@ -178,7 +178,7 @@ export function TransferArc({ asteroid, dayOffset, onClickLabel }: Props) {
       <group>
         <primitive object={scene.line} />
         <Html position={scene.labelPos} center>
-          <div style={{ ...labelStyle('#ffaa33'), cursor: 'pointer' }} onClick={() => onClickLabel?.(scene.labelPos)}>
+          <div style={{ ...labelStyle('#ffaa33'), cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onClickLabel?.(scene.labelPos); }}>
             <div style={{ fontWeight: 700, color: '#ffcc44', fontSize: '12px' }}>
               🚀 Launch Window Open
             </div>
@@ -209,7 +209,7 @@ export function TransferArc({ asteroid, dayOffset, onClickLabel }: Props) {
           />
         </mesh>
         <Html position={scene.labelPos} center>
-          <div style={{ ...labelStyle('#ffaa33'), cursor: 'pointer' }} onClick={() => onClickLabel?.(scene.shipPos)}>
+          <div style={{ ...labelStyle('#ffaa33'), cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onClickLabel?.(scene.shipPos); }}>
             <div style={{ fontWeight: 700, color: '#ffcc44' }}>
               🛰️ In Transit — {Math.round(scene.progress)}%
             </div>
@@ -235,7 +235,7 @@ export function TransferArc({ asteroid, dayOffset, onClickLabel }: Props) {
           />
         </mesh>
         <Html position={[scene.pos.x, scene.pos.y + 0.08, scene.pos.z]} center>
-          <div style={{ ...labelStyle('#44ff44'), cursor: 'pointer' }} onClick={() => onClickLabel?.(scene.pos)}>
+          <div style={{ ...labelStyle('#44ff44'), cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onClickLabel?.(scene.pos); }}>
             <div style={{ fontWeight: 700, color: '#66ff66' }}>
               ✅ Arrived
             </div>

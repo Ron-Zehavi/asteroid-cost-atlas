@@ -134,13 +134,15 @@ asteroid-cost-atlas/
 │   │   └── metadata/            # Per-run fetch metadata (JSON)
 │   └── processed/               # Pipeline output Parquets
 ├── docs/
+│   ├── CICD.md                  # CI/CD pipeline setup, workflow, and AWS configuration
 │   ├── DATA_DICTIONARY.md       # Complete field reference for all pipeline stages
 │   └── METHODOLOGY.md           # Scientific methodology, models, and source citations
 ├── scripts/
-│   └── audit.py                   # Pipeline audit: column counts, coverage, baselines
+│   ├── audit.py                   # Pipeline audit: column counts, coverage, baselines
+│   └── ship.sh                    # Quality gate + push + PR creation (used by `make ship`)
 ├── web/                           # React frontend (Vite + TypeScript + Three.js)
 ├── .github/workflows/
-│   └── ci.yml                   # Lint → type-check → test (Python 3.11/3.12)
+│   └── ci.yml                   # CI: lint → type-check → test; CD: Docker → ECR → ECS deploy
 ├── Dockerfile                     # Single-container deployment (API + frontend)
 ├── start.sh                       # One-command launcher (backend :8000 + frontend :5173)
 ├── Makefile
@@ -282,6 +284,7 @@ Available `make` targets:
   serve              Start FastAPI backend (uvicorn on :8000)
   web-dev            Start React frontend dev server (Vite on :5173)
   web-build          Production build of the React frontend
+  ship               Run all checks, push branch, and open PR to main
   docker             Build Docker image (single-container deployment)
   clean              Remove build artifacts and caches
 ```
@@ -567,7 +570,7 @@ Per asteroid, the atlas computes:
 - [x] Orbital scoring module — delta-v proxies, Tisserand parameter, inclination penalty
 - [x] Physical feasibility module — gravity, rotation feasibility, regolith likelihood
 - [x] DuckDB query layer — `top_accessible`, `nea_candidates`, `stats`, `delta_v_histogram`
-- [x] CI/CD — GitHub Actions with Python 3.11/3.12 matrix
+- [x] CI/CD — GitHub Actions with Python 3.11/3.12 matrix, automated deploy to AWS ECS on merge to main
 - [x] Composition proxy module — C/S/M/V classification from taxonomy + albedo
 - [x] Economic scoring engine — mass × resource value × accessibility ranking
 - [x] Atlas assembly — 33-column unified dataset with `economic_priority_rank`
@@ -618,6 +621,24 @@ The transition from static dataset to decision-support interface. A browser-base
 - [ ] **Transfer orbit visualization** — show Hohmann transfer path in 3D scene
 - [ ] **Launch window analysis** — porkchop plots, per-window delta-v breakdown
 - [ ] **Campaign optimizer** — given a fleet budget, find optimal target portfolio
+
+---
+
+## CI/CD Pipeline
+
+The project uses a branch-based development workflow with automated quality gates and continuous deployment.
+
+```
+feature branch → make ship → PR to main → CI checks → merge → auto-deploy to AWS
+```
+
+**Development:** Work on feature branches, commit often. When ready, run `make ship` — it runs all quality gates locally (lint, type-check, pytest, vitest), pushes the branch, and opens a PR to `main`.
+
+**CI (GitHub Actions):** Every PR triggers a full check matrix across Python 3.11 and 3.12: lint, mypy strict, pytest with coverage, and dependency audit.
+
+**CD (on merge to main):** Automatically builds the Docker image, pushes to Amazon ECR, and deploys to ECS with zero-downtime rolling update.
+
+See [docs/CICD.md](./docs/CICD.md) for full setup instructions and AWS configuration.
 
 ---
 
