@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { AsteroidTable } from './components/AsteroidTable';
+import { AsteroidDetail } from './components/AsteroidDetail';
 import { FilterBar } from './components/FilterBar';
 import { SearchBox } from './components/SearchBox';
 import { StatsCards } from './components/StatsCards';
@@ -57,20 +58,54 @@ export default function App() {
       <FilterBar filters={filters} onUpdate={updateFilters} />
 
       <div className="main-content">
-        <div className="table-panel">
-          <AsteroidTable
-            asteroids={asteroids}
-            total={total}
-            loading={loading}
-            sort={filters.sort}
-            order={filters.order}
-            offset={filters.offset}
-            limit={filters.limit}
-            onSort={toggleSort}
-            onNext={nextPage}
-            onPrev={prevPage}
-            onSelect={setSelected}
-          />
+        <div className={`table-panel${selected ? ' table-panel--detail' : ''}`}>
+          {selected ? (
+            <>
+              <div className="selected-header">
+                <table className="asteroid-table">
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Class</th>
+                      <th>D (km)</th>
+                      <th>Dv</th>
+                      <th>Viable</th>
+                      <th>
+                        <button className="back-btn" onClick={() => setSelected(null)}>
+                          Back to table
+                        </button>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="selected-row">
+                      <td>{selected.name}</td>
+                      <td>{selected.composition_class ?? '—'}</td>
+                      <td>{selected.diameter_estimated_km?.toFixed(3) ?? '—'}</td>
+                      <td>{selected.delta_v_km_s?.toFixed(2) ?? '—'}</td>
+                      <td>{selected.is_viable ? 'Yes' : 'No'}</td>
+                      <td />
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <AsteroidDetail asteroid={selected} onClose={() => setSelected(null)} />
+            </>
+          ) : (
+            <AsteroidTable
+              asteroids={asteroids}
+              total={total}
+              loading={loading}
+              sort={filters.sort}
+              order={filters.order}
+              offset={filters.offset}
+              limit={filters.limit}
+              onSort={toggleSort}
+              onNext={nextPage}
+              onPrev={prevPage}
+              onSelect={setSelected}
+            />
+          )}
         </div>
 
         <div className="scene-panel">
