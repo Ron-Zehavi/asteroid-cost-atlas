@@ -29,57 +29,41 @@ Inspired by the accessibility and value estimates pioneered by [Asterank](https:
 
 ## Pipeline Architecture
 
-```
-NASA SBDB API     LCDB          NEOWISE (PDS)     SDSS MOC        MOVIS-C         JPL Horizons
-     │              │                │                │                │                │
-     ▼              ▼                ▼                ▼                ▼                │
-┌──────────┐  ┌───────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
-│ 1. SBDB  │  │ 1b. LCDB  │  │ 1c. NEOWISE │  │ 1d. SDSS    │  │ 1f. MOVIS-C │       │
-│  Ingest  │  │  Ingest   │  │   Ingest    │  │   Ingest    │  │   Ingest    │       │
-└────┬─────┘  └─────┬─────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
-     │              │               │                │                │               │
-     ▼              │               │                │                │               │
-┌──────────┐        │               │                │                │               │
-│ 2. Clean │        │               │                │                │               │
-└────┬─────┘        │               │                │                │               │
-     │              │               │                │                │               │
-     ▼              ▼               ▼                ▼                ▼               │
-┌──────────────────────────────────────────────────────────────────────────┐          │
-│  3. Enrich                                                              │          │
-│  LCDB merge → NEOWISE merge → SDSS merge → MOVIS merge                  │          │
-│  → H→diameter estimation (99.9% coverage)                               │          │
-└────────────────────┬────────────────────────────────────────────────────┘          │
-                     │                                               │
-                     ▼                                               ▼
-              ┌──────────────────────┐                    ┌───────────────┐
-              │  4. Orbital Features │◄───────────────────│ 1e. Horizons  │
-              │  Delta-v, Tisserand  │  Prefer Horizons   │  Ingest (NEA) │
-              └──────┬───────────────┘  elements for NEAs └───────────────┘
-                     │
-                     ▼
-              ┌───────────────────────────┐
-              │  5. Physical Feasibility  │  Gravity, rotation, regolith
-              └──────┬────────────────────┘
-                     │
-                     ▼
-              ┌────────────────────────┐
-              │  6. Composition Proxies │  Taxonomy → spectral → SDSS → albedo
-              └──────┬─────────────────┘
-                     │
-                     ▼
-              ┌──────────────────────────────┐
-              │  7. Economic Scoring + Atlas │  Mass, value → economic_priority_rank
-              └──────┬───────────────────────┘
-                     │
-                     ▼
-              ┌──────────────────────────┐
-              │  8. Analytics & Outputs  │  DuckDB, Jupyter, visualisation
-              └────────────┬─────────────┘
-                           │
-                           ▼
-              ┌──────────────────────────┐
-              │  9. Web Application      │  FastAPI API + React/Three.js frontend
-              └──────────────────────────┘
+```mermaid
+graph TD
+    subgraph Ingestion
+        SBDB[NASA SBDB API] --> Ingest[1. SBDB Ingest]
+        LCDB[LCDB] --> IngestLCDB[1b. LCDB Ingest]
+        NEOWISE[NEOWISE PDS] --> IngestNEO[1c. NEOWISE Ingest]
+        SDSS[SDSS MOC] --> IngestSDSS[1d. SDSS Ingest]
+        MOVIS[MOVIS-C] --> IngestMOVIS[1f. MOVIS-C Ingest]
+        HORIZONS[JPL Horizons] --> IngestHRZ[1e. Horizons Ingest]
+    end
+
+    Ingest --> Clean[2. Clean & Validate]
+    Clean --> Enrich[3. Enrich]
+    IngestLCDB --> Enrich
+    IngestNEO --> Enrich
+    IngestSDSS --> Enrich
+    IngestMOVIS --> Enrich
+
+    subgraph Scoring
+        Enrich --> Orbital[4. Orbital Features]
+        IngestHRZ --> Orbital
+        Orbital --> Physical[5. Physical Feasibility]
+        Physical --> Composition[6. Composition Proxies]
+        Composition --> Economic[7. Economic Scoring + Atlas]
+    end
+
+    subgraph Serving
+        Economic --> DuckDB[8. DuckDB Query Layer]
+        DuckDB --> API[FastAPI REST API]
+        API --> Web[React + Three.js Frontend]
+    end
+
+    style Ingestion fill:#1a1a2e,stroke:#4fc3f7,color:#e0e0e0
+    style Scoring fill:#1a1a2e,stroke:#ffb74d,color:#e0e0e0
+    style Serving fill:#1a1a2e,stroke:#81c784,color:#e0e0e0
 ```
 
 ---

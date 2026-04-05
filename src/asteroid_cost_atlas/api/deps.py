@@ -31,8 +31,13 @@ def get_db(request: Request) -> CostAtlasDB:
     return request.app.state.db  # type: ignore[no-any-return]
 
 
-def db_sql(db: CostAtlasDB, query: str) -> list[dict[str, object]]:
+def db_sql(
+    db: CostAtlasDB, query: str, params: list[object] | None = None,
+) -> list[dict[str, object]]:
     """Thread-safe SQL execution returning list of dicts."""
     with _lock:
-        rows = db.sql(query).to_dict(orient="records")
+        if params:
+            rows = db._conn.execute(query, params).fetchdf().to_dict(orient="records")
+        else:
+            rows = db.sql(query).to_dict(orient="records")
         return rows  # type: ignore[return-value]

@@ -15,18 +15,24 @@ def _build_where(
     is_viable: bool | None,
     composition_class: str | None,
     dv_max: float | None,
-) -> str:
-    """Build a WHERE clause from filter params (shared with asteroids endpoint)."""
+) -> tuple[str, list[object]]:
+    """Build a WHERE clause with parameterized values."""
     clauses: list[str] = []
+    params: list[object] = []
     if neo and neo.upper() in ("Y", "N"):
-        clauses.append(f"neo = '{neo.upper()}'")
+        clauses.append("neo = ?")
+        params.append(neo.upper())
     if is_viable is not None:
-        clauses.append(f"is_viable = {is_viable}")
+        clauses.append("is_viable = ?")
+        params.append(is_viable)
     if composition_class and composition_class in ("C", "S", "M", "V", "U"):
-        clauses.append(f"composition_class = '{composition_class}'")
+        clauses.append("composition_class = ?")
+        params.append(composition_class)
     if dv_max is not None and dv_max > 0:
-        clauses.append(f"delta_v_km_s <= {dv_max}")
-    return "WHERE " + " AND ".join(clauses) if clauses else ""
+        clauses.append("delta_v_km_s <= ?")
+        params.append(dv_max)
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    return where, params
 
 
 @router.get("/stats")
@@ -38,7 +44,7 @@ def stats(
     db: CostAtlasDB = Depends(get_db),
 ) -> dict[str, object]:
     """Dashboard summary statistics, optionally filtered."""
-    where = _build_where(neo, is_viable, composition_class, dv_max)
+    where, params = _build_where(neo, is_viable, composition_class, dv_max)
     rows = db_sql(db, f"""
         SELECT
             COUNT(*)                                        AS total_objects,
@@ -53,7 +59,7 @@ def stats(
             ROUND(AVG(delta_v_km_s),    2)                 AS avg_delta_v
         FROM atlas
         {where}
-    """)
+    """, params or None)
     return rows[0] if rows else {}
 
 
