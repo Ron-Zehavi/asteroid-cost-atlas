@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from slowapi import Limiter
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 
 from asteroid_cost_atlas.api.deps import create_db
 from asteroid_cost_atlas.api.routes import asteroids, search, stats
 
 logger = logging.getLogger(__name__)
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["60/minute"])
 
 
 @asynccontextmanager
@@ -35,12 +41,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.state.limiter = limiter
+
+# CORS: restrict origins, configurable via CORS_ORIGINS env var
+_default_origins = "http://localhost:5173,http://localhost:8000"
+_origins = os.environ.get("CORS_ORIGINS", _default_origins).split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=[o.strip() for o in _origins],
+    allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
+    """Return 429 when rate limit is exceeded."""
+    return Response(
+        content='{"detail": "Rate limit exceeded"}',
+        status_code=429,
+        media_type="application/json",
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next: object) -> Response:
+    """Add security headers to all responses."""
+    response: Response = await call_next(request)  # type: ignore[operator]
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
 
 @app.get("/api/health")
 def health() -> dict[str, str]:

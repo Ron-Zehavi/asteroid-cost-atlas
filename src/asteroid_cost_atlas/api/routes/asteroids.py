@@ -14,6 +14,11 @@ from asteroid_cost_atlas.utils.query import CostAtlasDB
 
 router = APIRouter(prefix="/api/asteroids", tags=["asteroids"])
 
+ORBIT_CLASSES = frozenset({
+    "AMO", "APO", "ATE", "IEO", "MCA", "IMB", "MBA", "OMB", "TJN",
+    "CEN", "TNO", "PAA", "HYA", "JFC", "HTC", "ETc", "CTc", "JFc",
+})
+
 
 @router.get("")
 def list_asteroids(
@@ -27,39 +32,50 @@ def list_asteroids(
         raise HTTPException(400, f"Invalid order: {q.order}")
     if q.composition_class and q.composition_class not in COMPOSITION_CLASSES:
         raise HTTPException(400, f"Invalid composition_class: {q.composition_class}")
+    if q.orbit_class and q.orbit_class not in ORBIT_CLASSES:
+        raise HTTPException(400, f"Invalid orbit_class: {q.orbit_class}")
 
-    filters: list[str] = []
+    clauses: list[str] = []
+    params: list[object] = []
+
     if q.neo is not None:
         val = q.neo.upper()
         if val in ("Y", "N"):
-            filters.append(f"neo = '{val}'")
+            clauses.append("neo = ?")
+            params.append(val)
     if q.is_viable is not None:
-        filters.append(f"is_viable = {q.is_viable}")
+        clauses.append("is_viable = ?")
+        params.append(q.is_viable)
     if q.composition_class:
-        filters.append(f"composition_class = '{q.composition_class}'")
+        clauses.append("composition_class = ?")
+        params.append(q.composition_class)
     if q.orbit_class:
-        clean = q.orbit_class.replace("'", "")
-        filters.append(f"orbit_class = '{clean}'")
+        clauses.append("orbit_class = ?")
+        params.append(q.orbit_class)
     if q.dv_min is not None:
-        filters.append(f"delta_v_km_s >= {q.dv_min}")
+        clauses.append("delta_v_km_s >= ?")
+        params.append(q.dv_min)
     if q.dv_max is not None:
-        filters.append(f"delta_v_km_s <= {q.dv_max}")
+        clauses.append("delta_v_km_s <= ?")
+        params.append(q.dv_max)
     if q.rank_max is not None:
-        filters.append(f"economic_priority_rank <= {q.rank_max}")
+        clauses.append("economic_priority_rank <= ?")
+        params.append(q.rank_max)
 
-    where = "WHERE " + " AND ".join(filters) if filters else ""
+    where = "WHERE " + " AND ".join(clauses) if clauses else ""
+    # Sort column is validated against SORTABLE_COLUMNS whitelist above
     sort_col = q.sort
-    sort_dir = q.order.upper()
+    sort_dir = "ASC" if q.order == "asc" else "DESC"
 
     count_sql = f"SELECT COUNT(*) AS total FROM atlas {where}"
-    total = db_sql(db, count_sql)[0]["total"]
+    total = db_sql(db, count_sql, params)[0]["total"]
 
     data_sql = (
         f"SELECT * FROM atlas {where} "
         f"ORDER BY {sort_col} {sort_dir} NULLS LAST "
-        f"LIMIT {q.limit} OFFSET {q.offset}"
+        f"LIMIT ? OFFSET ?"
     )
-    rows = db_sql(db, data_sql)
+    rows = db_sql(db, data_sql, [*params, q.limit, q.offset])
 
     return {"total": total, "limit": q.limit, "offset": q.offset, "data": rows}
 
@@ -95,7 +111,7 @@ def get_asteroid(
     db: CostAtlasDB = Depends(get_db),
 ) -> dict[str, object]:
     """Single asteroid by spkid."""
-    rows = db_sql(db, f"SELECT * FROM atlas WHERE spkid = {spkid}")
+    rows = db_sql(db, "SELECT * FROM atlas WHERE spkid = ?", [spkid])
     if not rows:
         raise HTTPException(404, f"Asteroid {spkid} not found")
     return rows[0]

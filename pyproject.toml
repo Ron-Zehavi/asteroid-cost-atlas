@@ -66,6 +66,7 @@ ml = [
 web = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    "slowapi>=0.1.9",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -83,7 +84,7 @@ python_version = "3.11"
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["sklearn.*"]
+module = ["sklearn.*", "slowapi.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

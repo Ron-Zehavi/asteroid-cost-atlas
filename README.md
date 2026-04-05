@@ -29,137 +29,94 @@ Inspired by the accessibility and value estimates pioneered by [Asterank](https:
 
 ## Pipeline Architecture
 
-```
-NASA SBDB API     LCDB          NEOWISE (PDS)     SDSS MOC        MOVIS-C         JPL Horizons
-     │              │                │                │                │                │
-     ▼              ▼                ▼                ▼                ▼                │
-┌──────────┐  ┌───────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐       │
-│ 1. SBDB  │  │ 1b. LCDB  │  │ 1c. NEOWISE │  │ 1d. SDSS    │  │ 1f. MOVIS-C │       │
-│  Ingest  │  │  Ingest   │  │   Ingest    │  │   Ingest    │  │   Ingest    │       │
-└────┬─────┘  └─────┬─────┘  └──────┬──────┘  └──────┬──────┘  └──────┬──────┘       │
-     │              │               │                │                │               │
-     ▼              │               │                │                │               │
-┌──────────┐        │               │                │                │               │
-│ 2. Clean │        │               │                │                │               │
-└────┬─────┘        │               │                │                │               │
-     │              │               │                │                │               │
-     ▼              ▼               ▼                ▼                ▼               │
-┌──────────────────────────────────────────────────────────────────────────┐          │
-│  3. Enrich                                                              │          │
-│  LCDB merge → NEOWISE merge → SDSS merge → MOVIS merge                  │          │
-│  → H→diameter estimation (99.9% coverage)                               │          │
-└────────────────────┬────────────────────────────────────────────────────┘          │
-                     │                                               │
-                     ▼                                               ▼
-              ┌──────────────────────┐                    ┌───────────────┐
-              │  4. Orbital Features │◄───────────────────│ 1e. Horizons  │
-              │  Delta-v, Tisserand  │  Prefer Horizons   │  Ingest (NEA) │
-              └──────┬───────────────┘  elements for NEAs └───────────────┘
-                     │
-                     ▼
-              ┌───────────────────────────┐
-              │  5. Physical Feasibility  │  Gravity, rotation, regolith
-              └──────┬────────────────────┘
-                     │
-                     ▼
-              ┌────────────────────────┐
-              │  6. Composition Proxies │  Taxonomy → spectral → SDSS → albedo
-              └──────┬─────────────────┘
-                     │
-                     ▼
-              ┌──────────────────────────────┐
-              │  7. Economic Scoring + Atlas │  Mass, value → economic_priority_rank
-              └──────┬───────────────────────┘
-                     │
-                     ▼
-              ┌──────────────────────────┐
-              │  8. Analytics & Outputs  │  DuckDB, Jupyter, visualisation
-              └────────────┬─────────────┘
-                           │
-                           ▼
-              ┌──────────────────────────┐
-              │  9. Web Application      │  FastAPI API + React/Three.js frontend
-              └──────────────────────────┘
+```mermaid
+graph TD
+    subgraph Ingestion
+        SBDB[NASA SBDB API] --> Ingest[1. SBDB Ingest]
+        LCDB[LCDB] --> IngestLCDB[1b. LCDB Ingest]
+        NEOWISE[NEOWISE PDS] --> IngestNEO[1c. NEOWISE Ingest]
+        SDSS[SDSS MOC] --> IngestSDSS[1d. SDSS Ingest]
+        MOVIS[MOVIS-C] --> IngestMOVIS[1f. MOVIS-C Ingest]
+        HORIZONS[JPL Horizons] --> IngestHRZ[1e. Horizons Ingest]
+    end
+
+    Ingest --> Clean[2. Clean & Validate]
+    Clean --> Enrich[3. Enrich]
+    IngestLCDB --> Enrich
+    IngestNEO --> Enrich
+    IngestSDSS --> Enrich
+    IngestMOVIS --> Enrich
+
+    subgraph Scoring
+        Enrich --> Orbital[4. Orbital Features]
+        IngestHRZ --> Orbital
+        Orbital --> Physical[5. Physical Feasibility]
+        Physical --> Composition[6. Composition Proxies]
+        Composition --> Economic[7. Economic Scoring + Atlas]
+    end
+
+    subgraph Serving
+        Economic --> DuckDB[8. DuckDB Query Layer]
+        DuckDB --> API[FastAPI REST API]
+        API --> Web[React + Three.js Frontend]
+    end
+
+    style Ingestion fill:#1a1a2e,stroke:#4fc3f7,color:#e0e0e0
+    style Scoring fill:#1a1a2e,stroke:#ffb74d,color:#e0e0e0
+    style Serving fill:#1a1a2e,stroke:#81c784,color:#e0e0e0
 ```
 
 ---
 
 ## Repository Structure
 
+```mermaid
+graph LR
+    subgraph "src/asteroid_cost_atlas/"
+        subgraph ingest/
+            ingest_sbdb[ingest_sbdb.py<br><i>SBDB API fetch</i>]
+            ingest_lcdb[ingest_lcdb.py<br><i>LCDB rotation periods</i>]
+            ingest_neowise[ingest_neowise.py<br><i>NEOWISE diameters</i>]
+            ingest_spectral[ingest_spectral.py<br><i>SDSS photometry</i>]
+            ingest_horizons[ingest_horizons.py<br><i>JPL Horizons elements</i>]
+            ingest_movis[ingest_movis.py<br><i>MOVIS-C NIR taxonomy</i>]
+            clean_sbdb[clean_sbdb.py<br><i>Rule-based cleaning</i>]
+            enrich[enrich.py<br><i>Multi-source merge</i>]
+        end
+        subgraph scoring/
+            orbital[orbital.py<br><i>Delta-v, Tisserand</i>]
+            physical[physical.py<br><i>Gravity, rotation</i>]
+            composition[composition.py<br><i>C/S/M/V classification</i>]
+            ml_classifier[ml_classifier.py<br><i>Random forest 94.4%</i>]
+            overlays[overlays.py<br><i>Radar + density overlays</i>]
+            economic[economic.py<br><i>Mass, value, ranking</i>]
+        end
+        subgraph api/
+            app[app.py<br><i>FastAPI + CORS + rate limit</i>]
+            routes[routes/<br><i>asteroids, stats, search</i>]
+            deps[deps.py<br><i>DuckDB injection</i>]
+        end
+        query[utils/query.py<br><i>DuckDB query layer</i>]
+        settings[settings.py<br><i>YAML + .env config</i>]
+    end
+
+    style ingest/ fill:#1a1a2e,stroke:#4fc3f7,color:#e0e0e0
+    style scoring/ fill:#1a1a2e,stroke:#ffb74d,color:#e0e0e0
+    style api/ fill:#1a1a2e,stroke:#81c784,color:#e0e0e0
 ```
-asteroid-cost-atlas/
-├── src/asteroid_cost_atlas/
-│   ├── ingest/
-│   │   ├── ingest_sbdb.py       # SBDB API fetch: pagination, caching, metadata
-│   │   ├── ingest_lcdb.py       # LCDB download: rotation periods, taxonomy
-│   │   ├── ingest_neowise.py    # NEOWISE diameters/albedos (~164K objects)
-│   │   ├── ingest_spectral.py   # SDSS MOC photometry, color indices
-│   │   ├── ingest_horizons.py   # JPL Horizons high-precision orbital elements (NEAs)
-│   │   ├── ingest_movis.py     # MOVIS-C near-IR colors and taxonomy (~18K objects)
-│   │   ├── clean_sbdb.py        # Rule-based data cleaning with per-rule logging
-│   │   └── enrich.py            # LCDB + NEOWISE + SDSS + MOVIS merge, H→diameter estimation
-│   ├── scoring/
-│   │   ├── orbital.py           # Delta-v, Tisserand, inclination penalty
-│   │   ├── physical.py          # Gravity, rotation feasibility, regolith
-│   │   ├── composition.py       # C/S/M/V classification from taxonomy + albedo
-│   │   ├── ml_classifier.py     # Random forest composition classifier (94.4% accuracy)
-│   │   ├── overlays.py          # Curated radar albedo + measured density overlays
-│   │   └── economic.py          # Mass, value, accessibility, ranking
-│   ├── models/
-│   │   └── asteroid.py          # Pydantic AsteroidRecord model
-│   ├── api/
-│   │   ├── app.py               # FastAPI app, lifespan, CORS, static serving
-│   │   ├── deps.py              # DuckDB dependency injection
-│   │   ├── schemas.py           # Pydantic request validation
-│   │   └── routes/              # asteroids, stats, search endpoints
-│   ├── utils/
-│   │   └── query.py             # DuckDB query layer (CostAtlasDB)
-│   └── settings.py              # Typed config loader (YAML + .env overrides)
-├── tests/
-│   ├── conftest.py
-│   ├── test_ingest_sbdb.py
-│   ├── test_ingest_lcdb.py
-│   ├── test_ingest_neowise.py
-│   ├── test_ingest_spectral.py
-│   ├── test_ingest_horizons.py
-│   ├── test_ingest_movis.py
-│   ├── test_clean_sbdb.py
-│   ├── test_enrich.py
-│   ├── test_orbital.py
-│   ├── test_physical.py
-│   ├── test_composition.py
-│   ├── test_economic.py
-│   ├── test_query.py
-│   ├── test_api.py
-│   ├── test_ml_classifier.py
-│   ├── test_overlays.py
-│   ├── test_pipeline_integration.py
-│   └── test_settings.py
-├── notebooks/
-│   └── explore_atlas.ipynb      # Interactive data explorer (Jupyter)
-├── configs/
-│   └── config.yaml              # API fields, page size, output paths
-├── data/
-│   ├── raw/
-│   │   ├── cache/               # Page-level API response cache
-│   │   └── metadata/            # Per-run fetch metadata (JSON)
-│   └── processed/               # Pipeline output Parquets
-├── docs/
-│   ├── CICD.md                  # CI/CD pipeline setup, workflow, and AWS configuration
-│   ├── DATA_DICTIONARY.md       # Complete field reference for all pipeline stages
-│   └── METHODOLOGY.md           # Scientific methodology, models, and source citations
-├── scripts/
-│   ├── audit.py                   # Pipeline audit: column counts, coverage, baselines
-│   └── ship.sh                    # Quality gate + push + PR creation (used by `make ship`)
-├── web/                           # React frontend (Vite + TypeScript + Three.js)
-├── .github/workflows/
-│   └── ci.yml                   # CI: lint → type-check → test; CD: Docker → ECR → ECS deploy
-├── Dockerfile                     # Single-container deployment (API + frontend)
-├── start.sh                       # One-command launcher (backend :8000 + frontend :5173)
-├── Makefile
-├── pyproject.toml
-└── .env.example
-```
+
+| Directory | Purpose |
+|---|---|
+| `tests/` | 18 test modules + conftest (85% coverage gate) |
+| `web/` | React frontend — Vite + TypeScript + Three.js |
+| `notebooks/` | `explore_atlas.ipynb` — interactive data explorer |
+| `configs/` | `config.yaml` — SBDB fields, page size, output paths |
+| `data/raw/` | Cached API responses + per-run metadata JSON |
+| `data/processed/` | Pipeline output Parquets (date-stamped) |
+| `docs/` | `CICD.md`, `DATA_DICTIONARY.md`, `METHODOLOGY.md` |
+| `scripts/` | `audit.py` (pipeline audit), `ship.sh` (CI/CD workflow) |
+| `.github/workflows/` | `ci.yml` — CI: lint + typecheck + test; CD: Docker → ECR → ECS |
+| Root files | `Dockerfile`, `start.sh`, `Makefile`, `pyproject.toml`, `.env.example` |
 
 ---
 
