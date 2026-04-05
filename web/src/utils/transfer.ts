@@ -166,7 +166,7 @@ export function getMissionPhase(
 export function transferArcPoints(
   departurePos: Vec3,
   arrivalPos: Vec3,
-  segments: number = 64,
+  segments: number = 256,
 ): Vec3[] {
   const points: Vec3[] = [];
 
@@ -185,7 +185,7 @@ export function transferArcPoints(
 
     points.push({
       x: x + perpX,
-      y: y + bulge * 0.15,
+      y: y,
       z: z + perpZ,
     });
   }
@@ -198,8 +198,17 @@ export function transferArcPoints(
  */
 export function getSpacecraftPosition(arcPoints: Vec3[], progress: number): Vec3 {
   const clamped = Math.max(0, Math.min(1, progress));
-  const idx = Math.min(Math.floor(clamped * (arcPoints.length - 1)), arcPoints.length - 1);
-  return arcPoints[idx];
+  const t = clamped * (arcPoints.length - 1);
+  const idx = Math.floor(t);
+  if (idx >= arcPoints.length - 1) return arcPoints[arcPoints.length - 1];
+  const frac = t - idx;
+  const a = arcPoints[idx];
+  const b = arcPoints[idx + 1];
+  return {
+    x: a.x + (b.x - a.x) * frac,
+    y: a.y + (b.y - a.y) * frac,
+    z: a.z + (b.z - a.z) * frac,
+  };
 }
 
 /**

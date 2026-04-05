@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { Billboard } from '@react-three/drei';
+import { Billboard, useTexture } from '@react-three/drei';
 
 /**
  * Asterank-style glowing sun: solid core sphere + additive-blended glow sprite.
  */
 export function SunGlow() {
+  const sunTex = useTexture('/textures/2k_sun.jpg');
   const glowTexture = useMemo(() => {
     const size = 256;
     const canvas = document.createElement('canvas');
@@ -26,21 +27,22 @@ export function SunGlow() {
 
   return (
     <group>
-      {/* Solid core */}
+      {/* Solid core — true radius: 0.00465 AU */}
       <mesh>
-        <sphereGeometry args={[0.06, 32, 32]} />
-        <meshBasicMaterial color="#fff8e0" />
+        <sphereGeometry args={[0.00465, 64, 64]} />
+        <meshBasicMaterial map={sunTex} toneMapped={false} />
       </mesh>
 
       {/* Inner glow sprite */}
       <Billboard>
         <mesh>
-          <planeGeometry args={[0.8, 0.8]} />
+          <planeGeometry args={[0.06, 0.06]} />
           <meshBasicMaterial
             map={glowTexture}
             transparent
             blending={THREE.AdditiveBlending}
             depthWrite={false}
+            depthTest={false}
             opacity={1.0}
           />
         </mesh>
@@ -49,12 +51,13 @@ export function SunGlow() {
       {/* Outer glow (larger, more transparent) */}
       <Billboard>
         <mesh>
-          <planeGeometry args={[2.0, 2.0]} />
+          <planeGeometry args={[0.15, 0.15]} />
           <meshBasicMaterial
             map={glowTexture}
             transparent
             blending={THREE.AdditiveBlending}
             depthWrite={false}
+            depthTest={false}
             opacity={0.3}
           />
         </mesh>

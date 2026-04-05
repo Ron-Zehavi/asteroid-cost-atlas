@@ -71,6 +71,9 @@ serve: ## Start FastAPI dev server on port 8000
 web-dev: ## Start React dev server (requires npm install in web/)
 	cd web && npm run dev
 
+sandbox: ## Start component sandbox (isolated preview on :5174)
+	cd web && npm run sandbox
+
 web-build: ## Build React production bundle
 	cd web && npm run build
 

@@ -3,6 +3,7 @@ import { useThree } from '@react-three/fiber';
 import * as THREE from 'three';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
+import { DISTANCE_SCALE } from '../../utils/sceneConstants';
 
 const CLASS_COLORS: Record<string, [number, number, number]> = {
   C: [0.3, 0.5, 0.9],
@@ -36,9 +37,9 @@ const fragmentShader = `
     // Round shape: solid core + soft glow edge
     float core = 1.0 - smoothstep(0.0, 0.3, dist);
     float glow = 1.0 - smoothstep(0.15, 0.5, dist);
-    float alpha = core * 1.0 + glow * 0.35;
+    float alpha = core * 1.0 + glow * 0.7;
     // Brighten center for glow effect
-    vec3 col = vColor + core * 0.4;
+    vec3 col = vColor + core * 0.6;
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -67,7 +68,7 @@ export function AsteroidCloud({ asteroids, colorBy, dayOffset = 0, onClickIndex 
         const epochDays = a.epoch_mjd ? a.epoch_mjd - 51544.5 : 0;
         const ma = propagateMeanAnomaly(baseMa, a.a_au, dayOffset - epochDays);
         const el = {
-          a: a.a_au, e: a.eccentricity, i: a.inclination_deg,
+          a: a.a_au * DISTANCE_SCALE, e: a.eccentricity, i: a.inclination_deg,
           om: a.long_asc_node_deg ?? 0, w: a.arg_perihelion_deg ?? 0, ma,
         };
         const p = keplerToCartesian(el);
@@ -119,16 +120,16 @@ export function AsteroidCloud({ asteroids, colorBy, dayOffset = 0, onClickIndex 
     }
   }, [camera, pointer, raycaster, onClickIndex]);
 
-  if (asteroids.length === 0) return null;
-
-  const material = new THREE.ShaderMaterial({
+  const material = useMemo(() => new THREE.ShaderMaterial({
     vertexShader,
     fragmentShader,
     vertexColors: true,
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
-  });
+  }), []);
+
+  if (asteroids.length === 0) return null;
 
   return (
     <points ref={pointsRef} onClick={handleClick} material={material}>

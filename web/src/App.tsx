@@ -9,7 +9,7 @@ import { SolarSystem } from './components/scene/SolarSystem';
 import { useAsteroids } from './hooks/useAsteroids';
 import { useStats } from './hooks/useStats';
 import { computeHohmannTransfer, estimateLaunchWindows } from './utils/transfer';
-import { SpacecraftPreview } from './components/scene/SpacecraftPreview';
+
 import './App.css';
 
 type ColorBy = 'composition' | 'delta_v' | 'viable' | 'confidence';
@@ -97,7 +97,7 @@ export default function App() {
       </div>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-      <SpacecraftPreview />
+      {/* <SpacecraftPreview /> */}
     </div>
   );
 }

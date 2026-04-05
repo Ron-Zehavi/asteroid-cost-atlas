@@ -1,5 +1,6 @@
 import { Html } from '@react-three/drei';
 import * as THREE from 'three';
+import { DISTANCE_SCALE } from '../../utils/sceneConstants';
 
 /**
  * Subtle orbital region bands in the ecliptic plane.
@@ -27,7 +28,7 @@ export function OrbitZones() {
       {ZONES.map((z) => (
         <group key={z.name}>
           <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <ringGeometry args={[z.innerAU, z.outerAU, 128]} />
+            <ringGeometry args={[z.innerAU * DISTANCE_SCALE, z.outerAU * DISTANCE_SCALE, 128]} />
             <meshBasicMaterial
               color={z.color}
               transparent
@@ -37,7 +38,7 @@ export function OrbitZones() {
             />
           </mesh>
           <Html
-            position={[0, 0.02, -z.labelAU]}
+            position={[0, 0.02, -z.labelAU * DISTANCE_SCALE]}
             center
             style={{ pointerEvents: 'none' }}
           >

@@ -3,28 +3,8 @@ import * as THREE from 'three';
 import { Html } from '@react-three/drei';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, orbitPoints } from '../../utils/kepler';
-
-const AU_KM = 149_597_870.7;
-
-function orbitCircumferenceKm(a: number, e: number): number {
-  const b = a * Math.sqrt(1 - e * e);
-  const h = ((a - b) / (a + b)) ** 2;
-  const circumAU = Math.PI * (a + b) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
-  return circumAU * AU_KM;
-}
-
-function formatKm(km: number): string {
-  if (km >= 1e9) return `${(km / 1e9).toFixed(1)}B km`;
-  if (km >= 1e6) return `${(km / 1e6).toFixed(0)}M km`;
-  return `${(km / 1e3).toFixed(0)}K km`;
-}
-
-function formatPeriod(a: number): string {
-  const years = Math.pow(a, 1.5);
-  const days = years * 365.25;
-  if (years >= 1) return `${years.toFixed(1)} yr`;
-  return `${days.toFixed(0)} d`;
-}
+import { DISTANCE_SCALE } from '../../utils/sceneConstants';
+import { orbitCircumferenceKm, formatKm, orbitalPeriod } from '../../utils/orbitUtils';
 
 interface Props {
   asteroid: Asteroid;
@@ -38,7 +18,7 @@ export function OrbitLine({ asteroid }: Props) {
     }
 
     const el = {
-      a: a.a_au,
+      a: a.a_au * DISTANCE_SCALE,
       e: a.eccentricity,
       i: a.inclination_deg,
       om: a.long_asc_node_deg ?? 0,
@@ -64,7 +44,7 @@ export function OrbitLine({ asteroid }: Props) {
       lineObj: line,
       labelPos: labelPosition,
       circumKm: orbitCircumferenceKm(a.a_au, a.eccentricity),
-      period: formatPeriod(a.a_au),
+      period: orbitalPeriod(a.a_au).label,
     };
   }, [asteroid]);
 
