@@ -19,11 +19,11 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: pip
 
-      - name: Install dependencies
-        run: pip install -e ".[dev]"
-
       - name: Verify package builds
-        run: pip install --no-deps --force-reinstall .
+        run: pip install --no-deps .
+
+      - name: Install dependencies (editable)
+        run: pip install -e ".[dev,ml]"
 
       - name: Lint
         run: ruff check src tests
