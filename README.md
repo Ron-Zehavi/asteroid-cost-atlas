@@ -1,8 +1,19 @@
 # asteroid-cost-atlas
 
-![Python](https://img.shields.io/badge/python-3.11+-blue) ![License](https://img.shields.io/badge/license-MIT-green)
+![Python](https://img.shields.io/badge/python-3.11+-blue) ![License](https://img.shields.io/badge/license-MIT-green) ![CI](https://img.shields.io/badge/CI-GitHub_Actions-blue) ![Data](https://img.shields.io/badge/data-1.5M_asteroids-orange)
 
 A reproducible data-engineering pipeline that transforms raw NASA small-body catalogs into an economic accessibility atlas for space-resource missions. Combines orbital mechanics proxies, physical asteroid properties, and mission-cost estimation features to rank candidate asteroid mining targets.
+
+### Key numbers
+
+| Metric | Value |
+|---|---|
+| Asteroids scored | **1,521,843** across 107 columns |
+| Data sources | 6 (SBDB, LCDB, NEOWISE, SDSS MOC, MOVIS-C, JPL Horizons) |
+| Positive per-kg margin | **10,336** asteroids |
+| Economically viable | **609** targets (enough material for at least one profitable mission) |
+| Total profitable missions | **24,142** supported across all viable targets |
+| Top campaign profit | **$376M** |
 
 ---
 
@@ -152,6 +163,25 @@ asteroid-cost-atlas/
 
 ---
 
+## Quickstart
+
+```bash
+git clone https://github.com/Ron-Zehavi/asteroid-cost-atlas.git
+cd asteroid-cost-atlas
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev,web]"
+cp .env.example .env
+./start.sh                    # launches API :8000 + frontend :5173
+```
+
+To run the full pipeline from scratch (fetches ~1.5M asteroids, takes a few minutes):
+
+```bash
+make pipeline                 # ingest → clean → enrich → score → atlas
+```
+
+---
+
 ## Setup
 
 Requires **Python 3.11+**.
@@ -291,6 +321,43 @@ Available `make` targets:
   ship               Run all checks, push branch, and open PR to main
   docker             Build Docker image (single-container deployment)
   clean              Remove build artifacts and caches
+```
+
+---
+
+## Example Query
+
+The atlas is a standard Parquet file queryable with DuckDB, pandas, or any Arrow-compatible tool:
+
+```sql
+-- Top 5 viable mining targets by economic rank
+SELECT name, composition_class AS class, delta_v_km_s AS dv_km_s,
+       diameter_estimated_km AS diam_km, is_viable, economic_priority_rank AS rank
+FROM 'data/processed/atlas_*.parquet'
+WHERE is_viable = true
+ORDER BY economic_priority_rank
+LIMIT 5;
+```
+
+```
+                 name class  dv_km_s  diam_km  is_viable      rank
+     66146 (1998 TU3)     S 3.995776    2.864       True   52627.0
+  1685 Toro (1948 OA)     S 5.408948    3.400       True   56321.0
+      17182 (1999 VU)     S 5.421101    2.885       True   81411.0
+   363505 (2003 UC20)     S 3.455269    1.876       True  105544.0
+    175706 (1996 FG3)     C 1.153070    1.196       True  107988.0
+```
+
+Or use the built-in Python query layer:
+
+```python
+from asteroid_cost_atlas.utils.query import CostAtlasDB
+
+db = CostAtlasDB("data/processed/atlas_20260404.parquet")
+print(db.top_accessible(n=10))
+print(db.nea_candidates())
+print(db.stats())
+db.close()
 ```
 
 ---
@@ -497,6 +564,23 @@ The atlas dataset (`data/processed/`) contains one row per asteroid in Parquet f
 
 ---
 
+## Data Update Cadence
+
+The pipeline is designed for periodic re-runs as upstream catalogs are updated:
+
+| Source | Update frequency | Notes |
+|---|---|---|
+| NASA SBDB | Weekly–monthly | New discoveries, refined orbits. Re-run `make ingest` to refresh |
+| LCDB | ~Quarterly | New lightcurve measurements. Re-run `make ingest-lcdb` |
+| NEOWISE | Archival (PDS) | Static dataset from WISE mission; refresh only on new PDS releases |
+| SDSS MOC | Archival | Static photometric catalog |
+| MOVIS-C | Archival | Static VizieR catalog (Popescu et al. 2018) |
+| JPL Horizons | Continuous | Perturbed elements updated daily; re-run `make ingest-horizons` (slow: ~35K NEAs at 2 req/s) |
+
+All ingestion stages use disk caching — unchanged pages are skipped on re-run. Running `make pipeline` end-to-end refreshes everything and produces a new date-stamped atlas.
+
+---
+
 ## Resource Valuation Methodology
 
 > **Note:** The economic model powers the backend scoring pipeline. The resulting `economic_priority_rank` and `is_viable` fields are exposed in the web UI for table sorting and filtering. The full mission economics (break-even analysis, campaign profits, per-metal breakdowns) will be surfaced in the planned Mission Planner (Phase 3).
@@ -585,6 +669,23 @@ Per asteroid, the atlas computes:
 - **Viability** (asteroid has enough material to break even)
 - **Missions supported** (total extraction ÷ mission capacity)
 - **Campaign profit** (total revenue − total cost across all missions)
+
+---
+
+## Limitations and Assumptions
+
+This project is a screening tool, not a mission design system. Key simplifications:
+
+- **Delta-v proxy** — uses simplified Hohmann transfer + inclination correction (Shoemaker-Helin), not full Lambert solutions. Underestimates cost for high-eccentricity or resonant transfers.
+- **Composition model** — Bayesian classification from taxonomy, spectral type, SDSS colors, MOVIS NIR, and albedo. Most asteroids lack direct spectral confirmation; albedo-only classifications (the majority) carry high uncertainty.
+- **Resource concentrations** — based on meteorite analog measurements (Cannon et al. 2023, Lodders et al. 2025). Actual asteroid compositions may differ significantly from their meteorite proxies.
+- **Extraction yields** — assumed 60% (water), 50% (bulk metals), 30% (precious metals). These are aspirational targets for technologies that do not yet exist at scale.
+- **Economic model** — spot metal prices as of April 2026. In practice, large-scale asteroid mining would collapse PGM prices long before 24,000 missions could fly.
+- **Density assumptions** — composition-specific (C: 1,300, S: 2,700, M: 5,300 kg/m³). Many asteroids are rubble piles with lower bulk density.
+- **Spherical diameter model** — asteroids are not spheres; volume (and therefore mass) estimates carry ~50% uncertainty for small bodies.
+- **Mission cost model** — calibrated from Discovery-class analogs ($300M minimum). Does not account for technology development, regulatory costs, or multi-mission fleet economics.
+
+These limitations are acceptable for target screening and relative ranking but should not be used for mission-level go/no-go decisions without higher-fidelity analysis.
 
 ---
 
@@ -691,6 +792,22 @@ Become a reproducible, openly maintained reference dataset **and interactive mis
 ## Changelog
 
 See [CHANGELOG.md](./CHANGELOG.md) for release history.
+
+---
+
+## Citing This Project
+
+If you use this dataset or pipeline in research, please cite:
+
+```bibtex
+@software{asteroid_cost_atlas,
+  author    = {Zehavi, Ron},
+  title     = {Asteroid Cost Atlas: Economic Accessibility Scoring for Space-Resource Missions},
+  year      = {2026},
+  url       = {https://github.com/Ron-Zehavi/asteroid-cost-atlas},
+  note      = {Data pipeline integrating SBDB, LCDB, NEOWISE, SDSS MOC, MOVIS-C, and JPL Horizons}
+}
+```
 
 ---
 
