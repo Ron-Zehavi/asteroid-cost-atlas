@@ -24,6 +24,8 @@ make pipeline                 # Run full pipeline: ingest → clean → enrich �
 make serve                    # Start FastAPI backend only (uvicorn on :8000)
 make web-dev                  # Start React frontend dev server (Vite on :5173)
 make web-build                # Production build of the React frontend
+make ship                     # Run all checks → push branch → open PR to main
+make ship TITLE="Fix bug"     # Same, with custom PR title
 ```
 
 ## Architecture

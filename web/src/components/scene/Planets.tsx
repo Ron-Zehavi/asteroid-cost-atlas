@@ -119,7 +119,7 @@ export function Planets({ dayOffset, onSelectPlanet }: Props) {
           {/* Planet name label — clickable to center camera */}
           <Html position={[p.x, p.y + p.size + 0.03, p.z]} center>
             <div
-              onClick={() => onSelectPlanet?.(p.name, new THREE.Vector3(p.x, p.y, p.z))}
+              onClick={(e) => { e.stopPropagation(); onSelectPlanet?.(p.name, new THREE.Vector3(p.x, p.y, p.z)); }}
               style={{
                 color: p.color,
                 fontSize: '10px',

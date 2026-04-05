@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { resolveFocusTarget, focusTargetToOverride, type FocusAction } from '../focusState';
+import { PLANET_ELEMENTS } from '../../components/scene/Planets';
 
 describe('resolveFocusTarget', () => {
   it('selectAsteroid returns asteroid target', () => {
@@ -8,8 +9,7 @@ describe('resolveFocusTarget', () => {
 
   it('selectPlanet returns planet target with name', () => {
     expect(resolveFocusTarget({ action: 'selectPlanet', name: 'Earth' })).toEqual({
-      type: 'planet',
-      name: 'Earth',
+      type: 'planet', name: 'Earth',
     });
   });
 
@@ -22,21 +22,42 @@ describe('resolveFocusTarget', () => {
   });
 });
 
-describe('focusTargetToOverride', () => {
-  it('asteroid maps to null (default tracking)', () => {
+describe('focusTargetToOverride — produces values FocusTracker expects', () => {
+  it('asteroid → null (FocusTracker asteroid branch: !override && selected)', () => {
     expect(focusTargetToOverride({ type: 'asteroid' })).toBeNull();
   });
 
-  it('planet maps to planet name string', () => {
-    expect(focusTargetToOverride({ type: 'planet', name: 'Mars' })).toBe('Mars');
+  it('planet → planet name string (FocusTracker planet branch: override && override !== "spacecraft")', () => {
+    const override = focusTargetToOverride({ type: 'planet', name: 'Mars' });
+    expect(override).toBe('Mars');
+    expect(override).not.toBeNull();
+    expect(override).not.toBe('spacecraft');
+    expect(override).not.toBe('Sun');
   });
 
-  it('sun maps to "Sun"', () => {
+  it('sun → "Sun" (FocusTracker Sun early-return: override === "Sun")', () => {
     expect(focusTargetToOverride({ type: 'sun' })).toBe('Sun');
   });
 
-  it('spacecraft maps to "spacecraft"', () => {
+  it('spacecraft → "spacecraft" (FocusTracker spacecraft branch: override === "spacecraft")', () => {
     expect(focusTargetToOverride({ type: 'spacecraft' })).toBe('spacecraft');
+  });
+});
+
+describe('planet names match PLANET_ELEMENTS', () => {
+  const planetNames = PLANET_ELEMENTS.map((p) => p.name);
+
+  for (const name of planetNames) {
+    it(`"${name}" is found in PLANET_ELEMENTS`, () => {
+      const override = focusTargetToOverride({ type: 'planet', name });
+      expect(override).toBe(name);
+      expect(PLANET_ELEMENTS.find((p) => p.name === override)).toBeDefined();
+    });
+  }
+
+  it('"Sun" is NOT in PLANET_ELEMENTS (handled separately)', () => {
+    const override = focusTargetToOverride({ type: 'sun' });
+    expect(PLANET_ELEMENTS.find((p) => p.name === override)).toBeUndefined();
   });
 });
 
@@ -51,20 +72,12 @@ describe('focus transitions: any action replaces previous tracking', () => {
   for (const prev of actions) {
     for (const next of actions) {
       if (prev === next) continue;
-      it(`${prev.action} → ${next.action}: produces correct new target`, () => {
-        // Simulate: first action sets state, second action replaces it
-        const _first = resolveFocusTarget(prev);
-        const second = resolveFocusTarget(next);
-        const override = focusTargetToOverride(second);
+      it(`${prev.action} → ${next.action}: new override is independent of previous`, () => {
+        // Simulate: set override from first action, then replace with second
+        let override = focusTargetToOverride(resolveFocusTarget(prev));
+        override = focusTargetToOverride(resolveFocusTarget(next));
 
-        // The new target should match the second action, not the first
-        expect(second.type).toBe(
-          next.action === 'selectAsteroid' ? 'asteroid' :
-          next.action === 'selectPlanet' ? 'planet' :
-          next.action === 'selectSun' ? 'sun' : 'spacecraft'
-        );
-
-        // Override string should be independent of previous state
+        // Verify the override matches only the second action
         if (next.action === 'selectAsteroid') expect(override).toBeNull();
         else if (next.action === 'selectPlanet') expect(override).toBe('Earth');
         else if (next.action === 'selectSun') expect(override).toBe('Sun');
@@ -72,15 +85,4 @@ describe('focus transitions: any action replaces previous tracking', () => {
       });
     }
   }
-});
-
-describe('Sun override is recognized as a planet by FocusTracker', () => {
-  it('"Sun" override is not null and not "spacecraft"', () => {
-    const override = focusTargetToOverride({ type: 'sun' });
-    expect(override).not.toBeNull();
-    expect(override).not.toBe('spacecraft');
-    // FocusTracker treats non-null, non-"spacecraft" as planet name lookup
-    // "Sun" won't match PLANET_ELEMENTS, so it effectively means "stay at origin"
-    expect(override).toBe('Sun');
-  });
 });

@@ -7,6 +7,11 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- CI/CD pipeline with automated deployment to AWS ECS on merge to main
+  — `make ship`: local quality gates (lint + mypy + pytest + vitest) → push → open PR
+  — CD job: Docker build → ECR push → ECS rolling deploy (triggered on main merge)
+  — `docs/CICD.md`: full workflow documentation and AWS setup guide
+  — GitHub environment `production` with optional approval gates
 - Physical feasibility scoring module (`scoring/physical.py`)
   — `surface_gravity_m_s2`, `rotation_feasibility`, `regolith_likelihood`
   — Each feature scored independently; gravity achieves 99.9% coverage
