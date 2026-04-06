@@ -23,7 +23,7 @@ jobs:
         run: pip install --no-deps .
 
       - name: Install dependencies (editable)
-        run: pip install -e ".[dev,ml]"
+        run: pip install -e ".[dev,ml,web]"
 
       - name: Lint
         run: ruff check src tests
