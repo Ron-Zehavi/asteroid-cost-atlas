@@ -280,6 +280,7 @@ body {
   font-size: 12px;
 }
 .detail-label { color: var(--text-dim); }
+.detail-label[title] { cursor: help; border-bottom: 1px dotted var(--text-dim); }
 .detail-value { font-weight: 500; text-align: right; word-break: keep-all; white-space: nowrap; }
 
 /* Scenario table inside detail drawer */
