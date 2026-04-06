@@ -20,6 +20,7 @@ import { TransferArc } from './TransferArc';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
 import { DISTANCE_SCALE } from '../../utils/sceneConstants';
+import { focusTargetToOverride } from '../../utils/focusState';
 
 interface Props {
   asteroids: Asteroid[];
@@ -166,7 +167,7 @@ function CameraFocus({ target, selectedId, controls, focusOverrideRef }: {
   // Jump camera on new asteroid selection
   useEffect(() => {
     if (!target || !controls.current || selectedId === lastId.current) return;
-    focusOverrideRef.current = null;
+    focusOverrideRef.current = focusTargetToOverride({ type: 'asteroid' });
     lastId.current = selectedId;
     const ctrl = controls.current;
     const dist = Math.max(0.005, target.length() * 0.05);
@@ -196,7 +197,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
 
   const handlePlanetSelect = useCallback((name: string, position: THREE.Vector3) => {
     if (!controlsRef.current) return;
-    focusOverrideRef.current = name; // track this planet
+    focusOverrideRef.current = focusTargetToOverride({ type: 'planet', name });
     const ctrl = controlsRef.current;
     const cam = ctrl.object as THREE.PerspectiveCamera;
     const dist = Math.max(0.005, position.length() * 0.05);
@@ -208,7 +209,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
 
   const handleSunClick = useCallback(() => {
     if (!controlsRef.current) return;
-    focusOverrideRef.current = 'Sun';
+    focusOverrideRef.current = focusTargetToOverride({ type: 'sun' });
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
   }, []);
@@ -226,7 +227,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
         <SunGlow />
         <Html position={[0, 0.05, 0]} center>
           <div
-            onClick={handleSunClick}
+            onClick={(e) => { e.stopPropagation(); handleSunClick(); }}
             style={{
               color: '#ffeeaa',
               fontSize: '10px',
@@ -263,7 +264,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
       {selected && <OrbitLine asteroid={selected} />}
       {selected && <TransferArc asteroid={selected} dayOffset={dayOffset} onClickLabel={(pos) => {
         if (!controlsRef.current) return;
-        focusOverrideRef.current = 'spacecraft';
+        focusOverrideRef.current = focusTargetToOverride({ type: 'spacecraft' });
         const ctrl = controlsRef.current;
         const cam = ctrl.object as THREE.PerspectiveCamera;
         const dist = Math.max(0.005, pos.length() * 0.05);

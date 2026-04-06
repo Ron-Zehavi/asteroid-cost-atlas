@@ -13,6 +13,7 @@ env/
 
 data/raw/*.json
 data/raw/*.csv
+data/raw/*.parquet
 data/raw/cache/**
 data/raw/metadata/**
 data/processed/**
@@ -20,6 +21,7 @@ data/processed/**
 !data/raw/metadata/.gitkeep
 !data/processed/.gitkeep
 
+.vite/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
@@ -31,3 +33,9 @@ htmlcov/
 notebooks/.ipynb_checkpoints/
 *.sqlite
 *.db
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
