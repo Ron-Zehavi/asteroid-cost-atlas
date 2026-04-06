@@ -74,23 +74,26 @@ jobs:
           ECR_REPOSITORY: ${{ secrets.ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG -t $ECR_REGISTRY/$ECR_REPOSITORY:latest .
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
 
-      - name: Deploy to ECS
+      - name: Deploy to App Runner
         env:
-          ECS_CLUSTER: ${{ secrets.ECS_CLUSTER }}
-          ECS_SERVICE: ${{ secrets.ECS_SERVICE }}
+          APPRUNNER_SERVICE_ARN: ${{ secrets.APPRUNNER_SERVICE_ARN }}
         run: |
-          aws ecs update-service \
-            --cluster $ECS_CLUSTER \
-            --service $ECS_SERVICE \
-            --force-new-deployment
-          echo "Waiting for deployment to stabilize..."
-          aws ecs wait services-stable \
-            --cluster $ECS_CLUSTER \
-            --services $ECS_SERVICE
-
-      - name: Deployment summary
-        run: echo "✅ Deployed ${{ github.sha }} to production"
+          OPERATION_ID=$(aws apprunner start-deployment \
+            --service-arn $APPRUNNER_SERVICE_ARN \
+            --query 'OperationId' --output text)
+          echo "Deployment started: $OPERATION_ID"
+          echo "Waiting for service to stabilize..."
+          for i in $(seq 1 30); do
+            STATUS=$(aws apprunner describe-service \
+              --service-arn $APPRUNNER_SERVICE_ARN \
+              --query 'Service.Status' --output text)
+            echo "Status: $STATUS"
+            if [ "$STATUS" = "RUNNING" ]; then echo "Deployment successful"; exit 0; fi
+            if [ "$STATUS" = "CREATE_FAILED" ] || [ "$STATUS" = "DELETE_FAILED" ]; then echo "Deployment failed"; exit 1; fi
+            sleep 20
+          done
+          echo "Timed out waiting for deployment"
+          exit 1

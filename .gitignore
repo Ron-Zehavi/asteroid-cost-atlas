@@ -33,3 +33,9 @@ htmlcov/
 notebooks/.ipynb_checkpoints/
 *.sqlite
 *.db
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+tfplan
