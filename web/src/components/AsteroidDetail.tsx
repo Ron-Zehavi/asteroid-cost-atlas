@@ -1,5 +1,5 @@
 import type { Asteroid } from '../types/asteroid';
-import { extractionInventory, missionScenario, METALS, METAL_PRICES } from '../utils/mining';
+import { extractionInventory, missionScenario } from '../utils/mining';
 
 function fmt(n: number | null | undefined, d = 2): string {
   if (n == null || !isFinite(n)) return '—';
