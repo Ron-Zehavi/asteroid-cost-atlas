@@ -4,8 +4,8 @@ Two App Runner environments. CI builds once, deploys to dev automatically, then 
 
 | Env | Service | Pulls tag | URL |
 |---|---|---|---|
-| dev | `asteroid-cost-atlas-dev` | `:dev` | _set after first apply_ |
-| prod | `asteroid-cost-atlas-prod` | `:prod` | _set after first apply_ |
+| dev | `asteroid-cost-atlas-dev` | `:dev` | <https://xgdxw8jhbf.us-east-1.awsapprunner.com> |
+| prod | `asteroid-cost-atlas-prod` | `:prod` | <https://p6jxczwt29.us-east-1.awsapprunner.com> |
 
 ## Daily flow
 
