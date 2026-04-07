@@ -768,6 +768,10 @@ If you use this dataset or pipeline in research, please cite:
 
 ---
 
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for the development workflow, branching model, and how changes ship to dev/prod via CI/CD. For deploy operations and AWS resource details see [DEPLOY.md](./DEPLOY.md).
+
 ## License
 
 MIT
