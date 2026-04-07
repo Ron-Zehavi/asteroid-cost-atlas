@@ -1,10 +1,10 @@
 resource "aws_cloudwatch_log_group" "app" {
-  name              = "/apprunner/${var.project}"
+  name              = "/apprunner/${var.project}-dev"
   retention_in_days = 14
 }
 
 resource "aws_apprunner_service" "app" {
-  service_name = var.project
+  service_name = "${var.project}-dev"
 
   source_configuration {
     authentication_configuration {
@@ -12,7 +12,7 @@ resource "aws_apprunner_service" "app" {
     }
 
     image_repository {
-      image_identifier      = "${aws_ecr_repository.app.repository_url}:latest"
+      image_identifier      = "${aws_ecr_repository.app.repository_url}:dev"
       image_repository_type = "ECR"
 
       image_configuration {
