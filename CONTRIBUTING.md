@@ -89,6 +89,7 @@ build  →  deploy-dev  →  [approval gate]  →  deploy-prod
 
 ### `deploy-prod`
 - **Paused** by GitHub `environment: production` until a required reviewer approves
+- **Only the repository owner (`Ron-Zehavi`) is configured as a required reviewer.** Other contributors cannot approve a production deploy. If you need a prod ship, get your PR merged and ping the owner
 - After approval: retags the build's `:sha-<short>` as `:prod` in ECR (the *exact same image bytes* that ran in dev)
 - Calls `apprunner start-deployment` on `asteroid-cost-atlas-prod`
 - Prod pulls the new `:prod` image and rolls out
@@ -102,10 +103,11 @@ The promotion rule is **promote the artifact, not the build**: prod runs the ide
 1. **Open and merge a PR to `main`** (see [Pull requests](#pull-requests))
 2. **Wait for CI** — the `build` and `deploy-dev` jobs run automatically (~5 min total). Watch in the Actions tab
 3. **Smoke-test dev** at the dev URL (see [DEPLOY.md](./DEPLOY.md)). Click around, check anything your change touched
-4. **Approve prod** when you're ready:
+4. **Approve prod** (repo owner only) when ready:
    - Open the workflow run page in the Actions tab
    - Click **"Review deployments"** in the yellow banner
    - Check `production` and click **"Approve and deploy"**
+   - Other contributors should ping the repo owner once their PR is merged and dev is verified
 5. **Verify prod** at the prod URL
 
 If dev looks broken, **don't approve prod**. Push a fix. The waiting prod job will be superseded by the new run. Prod stays on the previous version the whole time.
@@ -129,6 +131,7 @@ If dev looks broken, **don't approve prod**. Push a fix. The waiting prod job wi
 - **Pytest** with an 85 % coverage gate (`make test`)
 - Tests live under `tests/`, mirroring the `src/` package structure
 - New code must include unit tests. Coverage drops below 85 % will fail CI
+- **Bug fixes must include a functional test for the corrected behavior.** Don't just assert "the original symptom no longer happens" — assert that the function or endpoint produces the *correct* output for the class of input the bug exposed. The difference matters: wrapping the symptom in `try/except` would pass a symptom-only test but a functional test would still fail because the underlying behavior is still wrong. The test should fail on `main` before your fix and pass after. Include a one-line comment pointing at the original failure mode
 
 Frontend tests (Vitest) are wired but minimal — feel free to add coverage for non-trivial UI logic.
 
