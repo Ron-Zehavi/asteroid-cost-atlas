@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
 
@@ -13,12 +14,18 @@ _lock = threading.Lock()
 
 
 def _resolve_processed_dir() -> Path:
-    """Resolve the processed data directory from the repo root."""
+    """Resolve the processed data directory.
+
+    Priority: ASTEROID_PROCESSED_DIR env var > repo root (dev) > /app/data/processed (container).
+    """
+    env_dir = os.environ.get("ASTEROID_PROCESSED_DIR")
+    if env_dir:
+        return Path(env_dir)
     module = Path(__file__).resolve()
-    repo_root = next(
-        p for p in [module, *module.parents] if (p / "pyproject.toml").exists()
-    )
-    return repo_root / "data" / "processed"
+    for p in [module, *module.parents]:
+        if (p / "pyproject.toml").exists():
+            return p / "data" / "processed"
+    return Path("/app/data/processed")
 
 
 def create_db() -> CostAtlasDB:

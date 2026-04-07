@@ -25,8 +25,8 @@ resource "aws_apprunner_service" "app" {
   }
 
   instance_configuration {
-    cpu    = "0.25 vCPU"
-    memory = "0.5 GB"
+    cpu    = "1 vCPU"
+    memory = "2 GB"
   }
 
   health_check_configuration {
