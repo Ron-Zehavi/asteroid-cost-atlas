@@ -9,6 +9,12 @@ htmlcov
 .coverage
 data/raw/cache
 data/raw/*.csv
+# Runtime only reads the newest atlas_*.parquet — exclude all other processed files
+data/processed/sbdb_clean_*.parquet
+data/processed/sbdb_enriched_*.parquet
+data/processed/sbdb_orbital_*.parquet
+data/processed/sbdb_physical_*.parquet
+data/processed/sbdb_composition_*.parquet
 web/node_modules
 web/dist
 .env
