@@ -12,6 +12,7 @@ permissions:
 env:
   AWS_REGION: us-east-1
   ECR_REPOSITORY: 975050282139.dkr.ecr.us-east-1.amazonaws.com/asteroid-cost-atlas
+  DATA_BUCKET: asteroid-cost-atlas-data-975050282139
 
 jobs:
   deploy:
@@ -27,6 +28,12 @@ jobs:
       - uses: aws-actions/amazon-ecr-login@v2
 
       - uses: docker/setup-buildx-action@v3
+
+      - name: Download processed data from S3
+        run: |
+          mkdir -p data/processed
+          aws s3 sync "s3://${DATA_BUCKET}/processed/" data/processed/ --exact-timestamps
+          ls -lh data/processed/
 
       - name: Build and push image
         uses: docker/build-push-action@v6

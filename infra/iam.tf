@@ -79,8 +79,17 @@ resource "aws_iam_role_policy" "github_actions" {
         Action = [
           "apprunner:StartDeployment",
           "apprunner:DescribeService",
+          "apprunner:ListServices",
         ]
-        Resource = aws_apprunner_service.app.arn
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:ListBucket"]
+        Resource = [
+          aws_s3_bucket.data.arn,
+          "${aws_s3_bucket.data.arn}/*",
+        ]
       },
     ]
   })
