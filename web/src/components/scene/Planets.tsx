@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Html, useTexture } from '@react-three/drei';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
-import { DISTANCE_SCALE } from '../../utils/sceneConstants';
+import { DISTANCE_SCALE, OBJECT_SCALE } from '../../utils/sceneConstants';
 import { orbitCircumferenceKm, formatKm, orbitalPeriod } from '../../utils/orbitUtils';
 
 interface PlanetDef {
@@ -84,7 +84,7 @@ function TexturedPlanet({ planet, position, onClick, tintColor, tintIntensity }:
 
   return (
     <mesh position={position} onClick={onClick}>
-      <sphereGeometry args={[planet.size, 32, 32]} />
+      <sphereGeometry args={[planet.size * OBJECT_SCALE, 32, 32]} />
       <meshStandardMaterial map={tex} emissive={emissive} emissiveIntensity={emissiveIntensity} />
     </mesh>
   );

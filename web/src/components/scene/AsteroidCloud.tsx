@@ -4,13 +4,13 @@ import { useTexture } from '@react-three/drei';
 import * as THREE from 'three';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
-import { DISTANCE_SCALE } from '../../utils/sceneConstants';
+import { DISTANCE_SCALE, OBJECT_SCALE } from '../../utils/sceneConstants';
 
 type CompositionClass = 'C' | 'S' | 'M' | 'V' | 'U';
 
 const KM_PER_AU = 149_597_870.7;
 /** Minimum on-screen pixel diameter so distant asteroids stay visible/clickable. */
-const MIN_PIXEL_DIAMETER = 6;
+const MIN_PIXEL_DIAMETER = 3;
 
 /** Subtle emissive tint per class — texture stays the dominant visual cue. */
 const CLASS_TINT: Record<CompositionClass, string> = {
@@ -115,7 +115,7 @@ export function AsteroidCloud({
   const trueRadii = useMemo(() => {
     return asteroids.map((a) => {
       const diamKm = a.diameter_estimated_km ?? 0.02;
-      return (diamKm / KM_PER_AU) / 2;
+      return ((diamKm / KM_PER_AU) / 2) * OBJECT_SCALE;
     });
   }, [asteroids]);
 
@@ -279,7 +279,7 @@ function HighlightedAsteroid({
   const trueRadius = useMemo(() => {
     if (!asteroid) return 0;
     const diamKm = asteroid.diameter_estimated_km ?? 0.02;
-    return (diamKm / KM_PER_AU) / 2;
+    return ((diamKm / KM_PER_AU) / 2) * OBJECT_SCALE;
   }, [asteroid]);
 
   useFrame(() => {
