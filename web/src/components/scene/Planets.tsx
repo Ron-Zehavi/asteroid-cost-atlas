@@ -71,17 +71,21 @@ function OrbitRing({ planet, onClick }: { planet: PlanetDef; onClick: () => void
   );
 }
 
-function TexturedPlanet({ planet, position, onClick }: {
+function TexturedPlanet({ planet, position, onClick, tintColor, tintIntensity }: {
   planet: PlanetDef & { x: number; y: number; z: number };
   position: [number, number, number];
   onClick: () => void;
+  tintColor?: string;
+  tintIntensity?: number;
 }) {
   const tex = useTexture(planet.texture);
+  const emissive = tintColor ?? planet.color;
+  const emissiveIntensity = tintColor ? (tintIntensity ?? 0.5) : 0.05;
 
   return (
     <mesh position={position} onClick={onClick}>
       <sphereGeometry args={[planet.size, 32, 32]} />
-      <meshStandardMaterial map={tex} emissive={planet.color} emissiveIntensity={0.05} />
+      <meshStandardMaterial map={tex} emissive={emissive} emissiveIntensity={emissiveIntensity} />
     </mesh>
   );
 }
@@ -89,9 +93,11 @@ function TexturedPlanet({ planet, position, onClick }: {
 interface Props {
   dayOffset: number;
   onSelectPlanet?: (name: string, position: THREE.Vector3) => void;
+  /** Optional emissive tint for Earth (e.g. green during a launch window). */
+  earthTint?: string | null;
 }
 
-export function Planets({ dayOffset, onSelectPlanet }: Props) {
+export function Planets({ dayOffset, onSelectPlanet, earthTint }: Props) {
   const positions = useMemo(() => {
     return PLANET_ELEMENTS.map((p) => {
       const ma = propagateMeanAnomaly(p.ma0, p.a, dayOffset);
@@ -115,6 +121,7 @@ export function Planets({ dayOffset, onSelectPlanet }: Props) {
             planet={p}
             position={[p.x, p.y, p.z]}
             onClick={() => onSelectPlanet?.(p.name, new THREE.Vector3(p.x, p.y, p.z))}
+            tintColor={p.name === 'Earth' ? earthTint ?? undefined : undefined}
           />
           {/* Planet name label — clickable to center camera */}
           <Html position={[p.x, p.y + p.size + 0.03, p.z]} center>

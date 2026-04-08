@@ -5,7 +5,7 @@ import type { Asteroid, AsteroidListResponse, Filters } from '../types/asteroid'
 const DEFAULT_FILTERS: Filters = {
   sort: 'economic_priority_rank',
   order: 'asc',
-  limit: 50,
+  limit: 200,
   offset: 0,
   dv_max: 3,
 };

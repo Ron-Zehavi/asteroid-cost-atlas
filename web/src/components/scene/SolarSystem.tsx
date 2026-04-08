@@ -10,6 +10,7 @@ import { SunGlow } from './SunGlow';
 import {
   computeHohmannTransfer,
   estimateLaunchWindows,
+  getCurrentMissionPhase,
   getMissionPhase,
   getSpacecraftPosition,
   transferArcPoints,
@@ -277,6 +278,16 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
     return asteroidPosition(selected, dayOffset);
   }, [selected, dayOffset]);
 
+  // Current mission phase for the selected asteroid → drives Earth and target tints.
+  const missionPhase = useMemo(() => {
+    if (!selected) return null;
+    return getCurrentMissionPhase(selected, dayOffset);
+  }, [selected, dayOffset]);
+
+  const earthTint = missionPhase?.phase === 'window_open' ? '#44ff44' : null;
+  const highlightedSpkid = missionPhase?.phase === 'arrived' ? selected?.spkid ?? null : null;
+  const highlightTint = missionPhase?.phase === 'arrived' ? '#44ff44' : null;
+
   const handleAsteroidClick = useCallback((index: number) => {
     // Suppress click if it was actually a drag — otherwise dragging the camera
     // over the cloud re-selects an asteroid and re-triggers CameraFocus jump.
@@ -355,12 +366,14 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
         </Html>
       </group>
 
-      <Planets dayOffset={dayOffset} onSelectPlanet={handlePlanetSelect} />
+      <Planets dayOffset={dayOffset} onSelectPlanet={handlePlanetSelect} earthTint={earthTint} />
       <AsteroidCloud
         asteroids={asteroids}
         colorBy={colorBy}
         dayOffset={dayOffset}
         onClickIndex={handleAsteroidClick}
+        highlightedSpkid={highlightedSpkid}
+        highlightTint={highlightTint}
       />
 
       {selected && selectedPos && (

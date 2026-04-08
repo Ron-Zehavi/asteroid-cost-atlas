@@ -14,6 +14,7 @@
  */
 
 import type { Vec3 } from './kepler';
+import type { Asteroid } from '../types/asteroid';
 
 const V_EARTH = 29.78; // km/s
 const WINDOW_DURATION_DAYS = 30;
@@ -158,6 +159,22 @@ export function getMissionPhase(
   }
 
   return { phase: 'past', window: windows[windows.length - 1] };
+}
+
+/**
+ * Convenience: compute the current mission phase for an asteroid in one call.
+ * Encapsulates the Hohmann → launch-windows → phase chain so callers don't
+ * duplicate it. Returns null if the asteroid lacks orbital data or delta-v.
+ */
+export function getCurrentMissionPhase(
+  asteroid: Asteroid,
+  dayOffset: number,
+): { phase: MissionPhase; window: LaunchWindow; daysUntil?: number; progress?: number } | null {
+  if (!asteroid.a_au || asteroid.eccentricity == null || asteroid.inclination_deg == null) return null;
+  if (!asteroid.delta_v_km_s || asteroid.delta_v_km_s <= 0) return null;
+  const transfer = computeHohmannTransfer(asteroid.a_au, asteroid.inclination_deg);
+  const windows = estimateLaunchWindows(transfer.synodic_days, transfer.transfer_days, dayOffset);
+  return getMissionPhase(windows, dayOffset);
 }
 
 /**
