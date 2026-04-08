@@ -115,7 +115,7 @@ graph LR
 | `data/processed/` | Pipeline output Parquets (date-stamped) |
 | `docs/` | `CICD.md`, `DATA_DICTIONARY.md`, `METHODOLOGY.md` |
 | `scripts/` | `audit.py` (pipeline audit), `ship.sh` (CI/CD workflow) |
-| `.github/workflows/` | `ci.yml` — CI: lint + typecheck + test; CD: Docker → ECR → ECS |
+| `.github/workflows/` | `ci.yml` — lint + typecheck + tests; `deploy.yml` — Docker → ECR → App Runner (dev auto, prod env-gated) |
 | Root files | `Dockerfile`, `start.sh`, `Makefile`, `pyproject.toml`, `.env.example` |
 
 ---
@@ -400,7 +400,10 @@ db.close()
 - React frontend (`web/`) with Vite + TypeScript
 - AsteroidTable with collapsible metals breakdown (7 base columns + expandable 7 precious metal columns), viable row highlighting, sortable by name/confidence/diameter/delta-v
 - FilterBar (composition class, NEO, viability, max delta-v default 3 km/s), SearchBox, StatsCards (total/scored/NEA/min/median delta-v)
-- 3D solar system scene (react-three-fiber / Three.js): Sun + 8 planets with Kepler propagation, asteroid point clouds color-coded by composition/delta-v/viability/confidence, orbit line highlight on selection, camera focus on click
+- 3D solar system scene (react-three-fiber / Three.js): textured Sun + 8 planets at real AU distances with Kepler propagation, `OBJECT_SCALE` knob to keep bodies visible at typical zoom, initial camera fits Mars's orbit on load
+- Asteroids rendered as instanced textured spheres per composition class — 5 visually distinct types (C/S/M/V/U) using public-domain Solar System Scope textures (Ceres/Eris/Haumea/Makemake/Moon)
+- Mission state coloring: Earth turns green during the launch window; selected target turns green at arrival
+- Click-to-focus on planets and asteroids with a colored focus ring marking the active body
 - Orbit zone shading: NEO Region, Main Belt, Jupiter Trojans bands
 - Transfer trajectory simulation: Hohmann transfer arcs with 4 mission phases (waiting, window_open, in_transit, arrived) and animated spacecraft model
 - About modal with project vision, methodology, and references
@@ -658,7 +661,7 @@ These limitations are acceptable for target screening and relative ranking but s
 - [x] Orbital scoring module — delta-v proxies, Tisserand parameter, inclination penalty
 - [x] Physical feasibility module — gravity, rotation feasibility, regolith likelihood
 - [x] DuckDB query layer — `top_accessible`, `nea_candidates`, `stats`, `delta_v_histogram`
-- [x] CI/CD — GitHub Actions with Python 3.11/3.12 matrix, automated deploy to AWS ECS on merge to main
+- [x] CI/CD — GitHub Actions with Python 3.11/3.12 matrix, automated deploy to AWS App Runner (dev auto, prod env-gated) on merge to main
 - [x] Composition proxy module — C/S/M/V classification from taxonomy + albedo
 - [x] Economic scoring engine — mass × resource value × accessibility ranking
 - [x] Atlas assembly — 107-column unified dataset with `economic_priority_rank`
@@ -674,9 +677,12 @@ These limitations are acceptable for target screening and relative ranking but s
 The transition from static dataset to decision-support interface. A browser-based tool that lets users explore the atlas visually.
 
 **Solar system scene**
-- [x] 3D browser-based scene — Sun, planets (Mercury-Neptune), and asteroid belt rendered in real scale
+- [x] 3D browser-based scene — textured Sun + 8 planets at real AU distances, asteroid belt rendered with `OBJECT_SCALE` exaggeration knob for visibility
 - [x] Asteroid positions computed from Keplerian elements (a, e, i, longitude of ascending node, argument of perihelion)
-- [x] Color-coded by 4 modes: composition class, delta-v, viability, confidence
+- [x] Asteroids drawn as instanced textured spheres per composition class — 5 visually distinct types using public-domain textures (Ceres, Eris, Haumea, Makemake, Moon)
+- [x] Color modes: composition class (texture), delta-v, viability, confidence (emissive tint over the texture)
+- [x] Initial camera fits Mars's orbit on first load
+- [x] Click-to-focus with colored focus rings on planets and asteroids
 - [x] Filterable overlays — composition class, NEO, viability, max delta-v
 
 **Timeline and orbital motion**
@@ -693,7 +699,8 @@ The transition from static dataset to decision-support interface. A browser-base
 - [x] Milky Way galaxy skybox (procedural, tilted ~60 deg matching ecliptic-to-galactic angle)
 - [x] Asterank-style sun glow (radial gradient sprites, additive blending)
 - [x] Planet orbit lines colored to match planet color with orbit length (km) and period labels
-- [x] Asteroid point cloud with custom shader (round, glowing, min 4px, diameter-proportional)
+- [x] Instanced textured asteroid spheres with min-pixel-size floor so distant bodies stay visible/clickable
+- [x] Mission state coloring: Earth tinted green during the launch window, selected target tinted green at arrival
 - [x] About modal with project vision, methodology summary, and M.A.-style references
 
 **Mission layer architecture**
@@ -725,7 +732,7 @@ feature branch → make ship → PR to main → CI checks → merge → auto-dep
 
 **CI (GitHub Actions):** Every PR triggers a full check matrix across Python 3.11 and 3.12: lint, mypy strict, pytest with coverage, and dependency audit.
 
-**CD (on merge to main):** Automatically builds the Docker image, pushes to Amazon ECR, and deploys to ECS with zero-downtime rolling update.
+**CD (on merge to main):** Automatically builds the Docker image, pushes to Amazon ECR, and deploys to AWS App Runner. Dev rolls out immediately; prod is gated on a `production` GitHub environment requiring owner approval.
 
 See [docs/CICD.md](./docs/CICD.md) for full setup instructions and AWS configuration.
 
@@ -759,7 +766,7 @@ If you use this dataset or pipeline in research, please cite:
 ```bibtex
 @software{asteroid_cost_atlas,
   author    = {Zehavi, Ron},
-  title     = {Asteroid Cost Atlas: Economic Accessibility Scoring for Space-Resource Missions},
+  title     = {Asteroid Atlas: Economic Accessibility Scoring for Space-Resource Missions},
   year      = {2026},
   url       = {https://github.com/Ron-Zehavi/asteroid-cost-atlas},
   note      = {Data pipeline integrating SBDB, LCDB, NEOWISE, SDSS MOC, MOVIS-C, and JPL Horizons}

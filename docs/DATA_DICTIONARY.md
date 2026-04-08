@@ -1,6 +1,6 @@
 # Data Dictionary
 
-Complete field reference for the Asteroid Cost Atlas pipeline. Each table below corresponds to one pipeline stage. Columns are cumulative — later stages add to (never remove) earlier columns.
+Complete field reference for the Asteroid Atlas pipeline. Each table below corresponds to one pipeline stage. Columns are cumulative — later stages add to (never remove) earlier columns.
 
 ---
 

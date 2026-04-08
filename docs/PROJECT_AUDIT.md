@@ -1,8 +1,8 @@
-# Project Audit — Asteroid Cost Atlas
+# Project Audit — Asteroid Atlas
 
-**Date:** 2026-04-02
+**Date:** 2026-04-08
 **Version:** 0.1.0
-**Branch:** main (commit f13ff66)
+**Branch:** main
 **Python:** 3.11+
 **License:** MIT
 
@@ -35,7 +35,7 @@
 
 ## 1. Executive Summary
 
-Asteroid Cost Atlas is a Python data-engineering pipeline that transforms the NASA Small-Body Database (~1.52M asteroids) into a ranked economic atlas for space-resource missions. It ingests data from 7 public catalogs, applies orbital/physical/composition scoring, and runs a subsystem-based mission cost model to identify viable precious-metal extraction targets.
+Asteroid Atlas is a Python data-engineering pipeline that transforms the NASA Small-Body Database (~1.52M asteroids) into a ranked economic atlas for space-resource missions. It ingests data from 7 public catalogs, applies orbital/physical/composition scoring, and runs a subsystem-based mission cost model to identify viable precious-metal extraction targets.
 
 **Key outputs:**
 - `atlas_YYYYMMDD.parquet` — ~1.52M rows, ~107 columns, 156 MB
@@ -43,7 +43,7 @@ Asteroid Cost Atlas is a Python data-engineering pipeline that transforms the NA
 - 10,310 asteroids with positive per-kg margin
 - 23,127 total profitable missions supported across all viable targets
 
-**Current state:** Phase 1 complete (all 15 roadmap items checked) and Phase 2 web application delivered. The pipeline runs end-to-end, all tests pass (87.3% coverage, 85% gate), lint and strict mypy are clean across 27 source files. A FastAPI REST API and React/Three.js frontend provide browser-based access to the atlas, including a 3D solar system visualization.
+**Current state:** Phase 1 complete (all 15 roadmap items checked) and Phase 2 web application delivered. The pipeline runs end-to-end, all tests pass (87.3% coverage, 85% gate), lint and strict mypy are clean across 27 source files. A FastAPI REST API and React/Three.js frontend provide browser-based access to the atlas, including a 3D solar system visualization with textured planets at real AU distances and asteroids rendered as instanced textured spheres per composition class (5 visually distinct types). Mission state coloring tints Earth green during a launch window and the selected target green at arrival; an `OBJECT_SCALE` knob in `web/src/utils/sceneConstants.ts` lets the body-to-orbit ratio be tuned independently of `DISTANCE_SCALE`.
 
 ---
 
@@ -90,7 +90,8 @@ asteroid-cost-atlas/
 │   └── processed/                     # Pipeline stage outputs + final atlas
 ├── scripts/
 │   └── audit.py                       # Project audit + data integrity checker
-├── .github/workflows/ci.yml           # Python 3.11/3.12 matrix CI
+├── .github/workflows/ci.yml           # Python 3.11/3.12 matrix CI (lint/typecheck/tests)
+├── .github/workflows/deploy.yml       # Build → ECR → App Runner (dev), env-gated → prod
 ├── Makefile                           # 20+ targets including full pipeline
 ├── pyproject.toml                     # hatchling build, deps, tool config
 ├── CHANGELOG.md

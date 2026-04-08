@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Asteroid Cost Atlas — a data-engineering pipeline that fetches NASA's Small-Body Database, cleans/enriches the data, computes orbital and physical accessibility scores, and exposes the result through a DuckDB query layer. Python 3.11+, Pydantic v2, pandas, hatchling build.
+Asteroid Atlas — a data-engineering pipeline that fetches NASA's Small-Body Database, cleans/enriches the data, computes orbital and physical accessibility scores, and exposes the result through a DuckDB query layer. Python 3.11+, Pydantic v2, pandas, hatchling build.
 
 ## Commands
 
@@ -61,4 +61,4 @@ Each module exposes scalar helper functions (for unit testing) and vectorized Da
 - Structured JSON logging with per-run metadata files in `data/raw/metadata/`
 - Date-stamped output files (e.g. `sbdb_clean_20260330.parquet`)
 - Data flows through `data/raw/` → `data/processed/` as Parquet
-- `web/` contains the React frontend (Vite + TypeScript + Three.js)
+- `web/` contains the React frontend (Vite + TypeScript + Three.js): textured solar system at real AU distances, asteroids drawn as `InstancedMesh` per composition class with Solar System Scope textures, mission state coloring driven by `getCurrentMissionPhase()` in `web/src/utils/transfer.ts`. Scene tuning knobs (`OBJECT_SCALE`, `DISTANCE_SCALE`) live in `web/src/utils/sceneConstants.ts`.

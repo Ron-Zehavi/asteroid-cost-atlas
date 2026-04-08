@@ -7,6 +7,18 @@ All notable changes to this project are documented here.
 ## [Unreleased]
 
 ### Added
+- Solar system view polish: sun label closer/larger, initial camera fits Mars's orbit, focus rings on planet/asteroid click, drag-vs-click fix (#20)
+- Asteroid visual types by composition class — instanced textured spheres per class (Ceres/Eris/Haumea/Makemake/Moon for C/S/M/V/U) with mission-state coloring (Earth green during launch window, target green at arrival) (#22)
+- `OBJECT_SCALE` knob in `sceneConstants.ts` so Sun, planets, and asteroids scale together independently of `DISTANCE_SCALE`; tuned to real AU distances with bodies exaggerated 10× (#23)
+
+### Changed
+- Removed legacy single-environment `deploy` job from `.github/workflows/ci.yml`; the active deploy lives solely in `deploy.yml` with the dev/prod env split. `ci.yml` now only runs lint, typecheck, and tests (#24)
+- Default asteroid fetch limit raised from 50 → 200; the cloud now mirrors the table's current sort/filter (#22)
+
+### Removed
+- Green landing-glow sphere on arrival (replaced by texture-respecting target tint) (#20, #22)
+
+### Added (earlier)
 - CI/CD pipeline with automated deployment to AWS ECS on merge to main
   — `make ship`: local quality gates (lint + mypy + pytest + vitest) → push → open PR
   — CD job: Docker build → ECR push → ECS rolling deploy (triggered on main merge)

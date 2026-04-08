@@ -70,7 +70,7 @@ PR title should describe the change in the imperative ("Add X", "Fix Y", "Refact
 
 ## CI/CD pipeline
 
-Every push to `main` triggers `.github/workflows/deploy.yml`, which has three jobs:
+Every push to `main` triggers `.github/workflows/deploy.yml`, which has three jobs. (The legacy single-environment `deploy` job that used to live in `.github/workflows/ci.yml` was removed in #24; `ci.yml` now runs only lint, typecheck, and tests.)
 
 ```
 build  →  deploy-dev  →  [approval gate]  →  deploy-prod

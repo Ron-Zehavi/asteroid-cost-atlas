@@ -1,4 +1,4 @@
-"""FastAPI application for the Asteroid Cost Atlas."""
+"""FastAPI application for the Asteroid Atlas."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Asteroid Cost Atlas",
+    title="Asteroid Atlas",
     description="Economic accessibility atlas for asteroid mining targets",
     version="0.2.0",
     lifespan=lifespan,

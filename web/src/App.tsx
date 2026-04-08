@@ -56,7 +56,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Asteroid Cost Atlas</h1>
+        <h1>Asteroid Atlas</h1>
         <SearchBox onSelect={setSelected} />
         <select
           className="color-select"

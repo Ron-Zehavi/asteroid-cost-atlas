@@ -1,6 +1,6 @@
 # Scientific Methodology and Source Documentation
 
-Technical reference documenting the physical models, empirical parameters, data sources, and economic assumptions underlying the Asteroid Cost Atlas pipeline. All models and constants are traceable to published literature or publicly available data catalogs.
+Technical reference documenting the physical models, empirical parameters, data sources, and economic assumptions underlying the Asteroid Atlas pipeline. All models and constants are traceable to published literature or publicly available data catalogs.
 
 ---
 
@@ -298,6 +298,8 @@ The web frontend includes a visual Hohmann transfer trajectory simulation for mi
 4. **Arrived** — spacecraft at target asteroid orbit
 
 The transfer arc is computed from the Hohmann transfer semi-major axis: `a_transfer = (r_earth + r_target) / 2`. Transfer time follows Kepler's third law: `T = pi * sqrt(a_transfer^3 / mu_sun)`.
+
+**Mission state coloring (web):** During the launch window phase, Earth's emissive material is tinted green to mark it as the active departure body. When the spacecraft reaches the target, the selected asteroid is rendered as a green-tinted overlay sphere for the duration of the arrival window. Both effects are driven by `getCurrentMissionPhase()` in `web/src/utils/transfer.ts`, which is the single source of truth for the four-phase computation across the scene components.
 
 This visualization is pedagogical — it illustrates the energy cost represented by the delta-v proxy but does not replace the simplified Hohmann + inclination model used for catalog-scale ranking.
 

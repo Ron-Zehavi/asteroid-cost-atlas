@@ -1,5 +1,5 @@
 #!/bin/bash
-# Start Asteroid Cost Atlas — backend + frontend, open browser
+# Start Asteroid Atlas — backend + frontend, open browser
 set -e
 cd "$(dirname "$0")"
 
@@ -46,7 +46,7 @@ echo "Starting frontend on :5173..."
 FRONTEND_PID=$!
 
 echo ""
-echo "  Asteroid Cost Atlas running at http://localhost:5173"
+echo "  Asteroid Atlas running at http://localhost:5173"
 echo "  Press Ctrl+C to stop"
 echo ""
 
