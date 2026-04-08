@@ -1,6 +1,6 @@
 # CI/CD Pipeline
 
-This document describes the development workflow, continuous integration, and continuous deployment process for Asteroid Cost Atlas.
+This document describes the development workflow, continuous integration, and continuous deployment process for Asteroid Atlas.
 
 ---
 
@@ -29,10 +29,10 @@ feature branch (commit often)
   code review + merge PR
        │
        ▼
-  GitHub Actions CD (on push to main)
-       ├── Docker build (multi-stage: Node frontend + Python backend)
-       ├── Push image to Amazon ECR
-       └── Deploy to ECS (rolling update, wait for stable)
+  GitHub Actions CD (deploy.yml, on push to main)
+       ├── build:       Docker build (multi-stage: Node frontend + Python backend) → ECR
+       ├── deploy-dev:  start-deployment on dev App Runner service (auto)
+       └── deploy-prod: gated on `production` env (owner approval) → prod App Runner service
 ```
 
 ---
@@ -106,14 +106,18 @@ Each CI run uploads:
 
 ## Continuous Deployment (CD)
 
-The `deploy` job runs **only** on push to `main` (i.e., after a PR is merged). It requires the `ci` job to pass first.
+CD lives in **`.github/workflows/deploy.yml`** (not `ci.yml`). The legacy single-environment deploy job that used to live in `ci.yml` was removed in #24; `ci.yml` now runs only lint, typecheck, and tests. Every push to `main` triggers `deploy.yml`, which has three jobs:
 
-### Deploy steps
+1. **build** — multi-stage Docker build, tag with commit SHA, push to ECR (under both the `:dev` and `:prod` aliases as appropriate)
+2. **deploy-dev** — auto-rolls the new image into the dev App Runner service immediately
+3. **deploy-prod** — gated on the `production` GitHub environment; only the repository owner can approve. Once approved, rolls the same image into the prod App Runner service
+
+### Deploy steps (per job)
 
 1. **Authenticate** — OIDC-based AWS authentication (no long-lived access keys)
 2. **ECR login** — authenticate Docker to Amazon ECR
 3. **Build & push** — multi-stage Docker build, tagged with both `latest` and the commit SHA
-4. **ECS deploy** — force new deployment on the ECS service, then wait for stability
+4. **App Runner deploy** — `aws apprunner start-deployment` against the env-specific service, then poll until status is `RUNNING`
 
 ### Docker image
 
@@ -130,21 +134,13 @@ Stage 2 (python:3.12-slim) → pip install .[web] + copy frontend → uvicorn on
 
 ### Prerequisites
 
-- An ECR repository for the Docker image
-- An ECS cluster with a service running the container
-- An IAM role with OIDC trust for GitHub Actions
+- An ECR repository for the Docker image (`asteroid-cost-atlas`)
+- Two App Runner services (`asteroid-cost-atlas-dev` and `asteroid-cost-atlas-prod`), provisioned via Terraform under `infra/`
+- An IAM role with OIDC trust for GitHub Actions, scoped to the two environments (`development` and `production`)
 
-### GitHub Secrets
+### Workflow configuration
 
-Configure these in your repository settings (Settings > Secrets and variables > Actions):
-
-| Secret | Description | Example |
-|---|---|---|
-| `AWS_ROLE_ARN` | IAM role ARN for OIDC auth | `arn:aws:iam::123456789012:role/github-actions-deploy` |
-| `AWS_REGION` | AWS region | `us-east-1` |
-| `ECR_REPOSITORY` | ECR repository name | `asteroid-cost-atlas` |
-| `ECS_CLUSTER` | ECS cluster name | `prod-cluster` |
-| `ECS_SERVICE` | ECS service name | `asteroid-cost-atlas-svc` |
+Most values live as `env:` constants at the top of `.github/workflows/deploy.yml` (region, ECR repo, role ARN, data bucket) so there are no GitHub secrets to manage for the deploy itself. The split between dev and prod is enforced by GitHub Environments (`development` and `production`) — `deploy-prod` is gated on owner approval via the `production` environment's required-reviewers protection.
 
 ### GitHub Environment
 
@@ -231,8 +227,8 @@ Commit or stash your work first. The ship script requires a clean working tree t
 
 Check the Actions log for the deploy job. Common issues:
 - **Missing secrets** — verify all 5 secrets are configured in GitHub
-- **IAM permissions** — the role may lack ECR or ECS permissions
-- **ECS service not found** — verify cluster and service names match
+- **IAM permissions** — the role may lack ECR or App Runner permissions
+- **App Runner service not found** — the workflow looks up the service ARN by name; verify `asteroid-cost-atlas-dev` and `asteroid-cost-atlas-prod` exist in the configured region
 
 ### PR already exists
 

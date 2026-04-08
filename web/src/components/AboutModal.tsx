@@ -8,7 +8,7 @@ export function AboutModal({ onClose }: Props) {
       <div className="modal-content" onClick={(e) => e.stopPropagation()}>
         <button className="modal-close" onClick={onClose}>x</button>
 
-        <h2>About Asteroid Cost Atlas</h2>
+        <h2>About Asteroid Atlas</h2>
 
         <p>
           Artificial intelligence and robotics are beginning to remove one of humanity's oldest
@@ -20,7 +20,7 @@ export function AboutModal({ onClose }: Props) {
         </p>
 
         <p>
-          Asteroid Cost Atlas exists to help address this emerging constraint. The project maps
+          Asteroid Atlas exists to help address this emerging constraint. The project maps
           the orbital accessibility, physical properties, and economic potential of millions of
           asteroids to identify realistic candidates for early space-resource missions. By
           providing transparent, reproducible, catalog-scale data tools, it supports researchers,
@@ -35,7 +35,8 @@ export function AboutModal({ onClose }: Props) {
           (JPL SSD, 2026). We enrich this with rotation periods from the Asteroid Lightcurve
           Database (Warner, Harris &amp; Pravec, 2009), thermal-infrared diameters from the
           NEOWISE survey (Mainzer et al., 2019), photometric colors from the Sloan Digital Sky
-          Survey (Hasselmann et al., 2012), and high-precision orbital elements from JPL Horizons
+          Survey (Hasselmann et al., 2012), near-infrared colors and taxonomy from the MOVIS
+          catalog (Popescu et al., 2018), and high-precision orbital elements from JPL Horizons
           for near-Earth asteroids.
         </p>
 
@@ -59,6 +60,19 @@ export function AboutModal({ onClose }: Props) {
           and extraction overhead (Sonter, 1997; Elvis, 2014).
         </p>
 
+        <h3>Visualization</h3>
+        <p>
+          The 3D solar system is rendered with Three.js: a textured Sun and eight planets at real
+          AU distances, with an <code>OBJECT_SCALE</code> exaggeration knob so the bodies stay
+          visible at typical zoom levels. Asteroids are drawn as instanced textured spheres, one
+          group per composition class — five visually distinct types (carbonaceous, silicate,
+          metallic, basaltic, unknown) using public-domain Solar System Scope textures. The
+          mission view animates a Hohmann transfer arc with a spacecraft model: <strong>Earth turns
+          green during the launch window</strong>, and the <strong>selected target asteroid turns
+          green at arrival</strong>. Click any asteroid or planet to focus the camera on it; a
+          ring marks the active body so it's easy to track.
+        </p>
+
         <h3>How We Score Physical Feasibility</h3>
         <p>
           Surface gravity is estimated from diameter assuming a spherical body with uniform density.
@@ -76,6 +90,7 @@ export function AboutModal({ onClose }: Props) {
           <li>Ivezic, Z., et al. (2001). Solar System Objects in the SDSS. <em>AJ</em>, 122, 2749.</li>
           <li>Lodders, K., Bergemann, M., &amp; Palme, H. (2025). Solar System Abundances. <em>arXiv:2502.10575</em>.</li>
           <li>Mainzer, A. K., et al. (2019). NEOWISE Diameters and Albedos V2.0. <em>NASA PDS</em>.</li>
+          <li>Popescu, M., et al. (2018). MOVIS: A near-infrared survey for asteroid taxonomy in the VISTA Hemisphere Survey. <em>A&amp;A</em>, 617, A12.</li>
           <li>Pravec, P., &amp; Harris, A. W. (2000). Fast and Slow Rotation of Asteroids. <em>Icarus</em>, 148(1), 12-20.</li>
           <li>Sanchez, J. P., &amp; McInnes, C. R. (2011). Asteroid Resource Map. <em>J. Spacecraft Rockets</em>, 48(1), 153-165.</li>
           <li>Shoemaker, E. M., &amp; Helin, E. (1979). Earth-Approaching Asteroids as Targets. <em>NASA CP-2053</em>.</li>

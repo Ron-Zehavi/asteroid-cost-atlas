@@ -339,7 +339,7 @@ def run_audit() -> dict:
     root = _repo_root()
     timestamp = datetime.now(UTC).isoformat()
 
-    print(f"Asteroid Cost Atlas — Project Audit ({timestamp})")
+    print(f"Asteroid Atlas — Project Audit ({timestamp})")
     print("=" * 60)
 
     # 1. Structure
@@ -523,7 +523,7 @@ def compare_audits(current: dict, baseline: dict) -> None:
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Asteroid Cost Atlas — Project Audit")
+    parser = argparse.ArgumentParser(description="Asteroid Atlas — Project Audit")
     parser.add_argument("--save", type=str, help="Save audit results to JSON file")
     parser.add_argument("--compare", type=str, help="Compare against baseline JSON file")
     args = parser.parse_args()
