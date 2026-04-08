@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Billboard, useTexture } from '@react-three/drei';
+import { OBJECT_SCALE } from '../../utils/sceneConstants';
 
 /**
  * Asterank-style glowing sun: solid core sphere + additive-blended glow sprite.
@@ -27,16 +28,16 @@ export function SunGlow() {
 
   return (
     <group>
-      {/* Solid core — true radius: 0.00465 AU */}
+      {/* Solid core — true radius: 0.00465 AU, scaled by OBJECT_SCALE */}
       <mesh>
-        <sphereGeometry args={[0.00465, 64, 64]} />
+        <sphereGeometry args={[0.00465 * OBJECT_SCALE, 64, 64]} />
         <meshBasicMaterial map={sunTex} toneMapped={false} />
       </mesh>
 
       {/* Inner glow sprite */}
       <Billboard>
         <mesh>
-          <planeGeometry args={[0.06, 0.06]} />
+          <planeGeometry args={[0.06 * OBJECT_SCALE, 0.06 * OBJECT_SCALE]} />
           <meshBasicMaterial
             map={glowTexture}
             transparent
@@ -51,7 +52,7 @@ export function SunGlow() {
       {/* Outer glow (larger, more transparent) */}
       <Billboard>
         <mesh>
-          <planeGeometry args={[0.15, 0.15]} />
+          <planeGeometry args={[0.15 * OBJECT_SCALE, 0.15 * OBJECT_SCALE]} />
           <meshBasicMaterial
             map={glowTexture}
             transparent
