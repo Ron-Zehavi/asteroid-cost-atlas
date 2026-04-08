@@ -86,6 +86,17 @@ app.include_router(stats.router)
 app.include_router(search.router)
 
 # Serve built React frontend if it exists (must be last — catches all unmatched routes)
-_web_dist = Path(__file__).resolve().parent.parent.parent.parent / "web" / "dist"
+def _resolve_web_dist() -> Path:
+    env = os.environ.get("ASTEROID_WEB_DIST")
+    if env:
+        return Path(env)
+    module = Path(__file__).resolve()
+    for p in [module, *module.parents]:
+        if (p / "pyproject.toml").exists():
+            return p / "web" / "dist"
+    return Path("/app/web/dist")
+
+
+_web_dist = _resolve_web_dist()
 if _web_dist.is_dir():
     app.mount("/", StaticFiles(directory=str(_web_dist), html=True), name="static")

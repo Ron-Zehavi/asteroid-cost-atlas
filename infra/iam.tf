@@ -39,8 +39,12 @@ resource "aws_iam_role" "github_actions" {
         StringEquals = {
           "token.actions.githubusercontent.com:aud" = "sts.amazonaws.com"
         }
-        StringEquals = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main"
+        StringLike = {
+          "token.actions.githubusercontent.com:sub" = [
+            "repo:${var.github_org}/${var.github_repo}:ref:refs/heads/main",
+            "repo:${var.github_org}/${var.github_repo}:environment:development",
+            "repo:${var.github_org}/${var.github_repo}:environment:production",
+          ]
         }
       }
     }]
@@ -79,8 +83,17 @@ resource "aws_iam_role_policy" "github_actions" {
         Action = [
           "apprunner:StartDeployment",
           "apprunner:DescribeService",
+          "apprunner:ListServices",
         ]
-        Resource = aws_apprunner_service.app.arn
+        Resource = "*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:ListBucket"]
+        Resource = [
+          aws_s3_bucket.data.arn,
+          "${aws_s3_bucket.data.arn}/*",
+        ]
       },
     ]
   })

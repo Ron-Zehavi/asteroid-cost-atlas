@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { OrbitControls, Html, useTexture } from '@react-three/drei';
 import type { OrbitControls as OrbitControlsImpl } from 'three-stdlib';
@@ -17,6 +17,7 @@ import {
 
 import { OrbitZones } from './OrbitZones';
 import { TransferArc } from './TransferArc';
+import { FocusRing } from './FocusRing';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
 import { DISTANCE_SCALE } from '../../utils/sceneConstants';
@@ -77,6 +78,12 @@ function Starfield() {
  *  the orbit‑controls pivot so zoom / rotate keep working. */
 /** Focus override: null = track selected asteroid, 'static' = don't track, string = planet name to follow */
 type FocusOverride = null | 'static' | string;
+
+/** Module-level so it survives React StrictMode's double-mount in dev. */
+const focusOverrideShared: { current: FocusOverride } = { current: null };
+function setOverride(v: FocusOverride) {
+  focusOverrideShared.current = v;
+}
 
 const EARTH_ELEMENTS = { a: 1.0, e: 0.017, i: 0.0, om: -11.26, w: 102.95, ma0: 357.52 };
 
@@ -143,46 +150,127 @@ function FocusTracker({ focusOverrideRef, controls, dayOffset, selected }: {
       return;
     }
 
-    // null = track selected asteroid
-    if (!override && selected) {
-      const pos = asteroidPosition(selected, dayOffset);
-      if (pos) {
-        controls.current.target.copy(pos);
-        controls.current.update();
-      }
-    }
+    // null = no continuous tracking. CameraFocus already does the one-time
+    // jump when a new asteroid is selected; after that the user is in control.
   });
   return null;
 }
 
-function CameraFocus({ target, selectedId, controls, focusOverrideRef }: {
+const lastSelectedId = { current: null as number | null };
+
+function CameraFocus({ target, selectedId, controls }: {
   target: THREE.Vector3 | null;
   selectedId: number | null;
   controls: React.RefObject<OrbitControlsImpl | null>;
-  focusOverrideRef: React.MutableRefObject<FocusOverride>;
 }) {
   const { camera } = useThree();
-  const lastId = useRef<number | null>(null);
+  const lastId = lastSelectedId;
 
-  // Jump camera on new asteroid selection
+  // Jump camera on new asteroid selection. Only fires when selectedId actually
+  // changes — never overwrites 'static' on subsequent re-renders.
   useEffect(() => {
-    if (!target || !controls.current || selectedId === lastId.current) return;
-    focusOverrideRef.current = focusTargetToOverride({ type: 'asteroid' });
+    if (selectedId == null || selectedId === lastId.current) return;
+    if (!target || !controls.current) return;
     lastId.current = selectedId;
+    setOverride(null);
     const ctrl = controls.current;
     const dist = Math.max(0.005, target.length() * 0.05);
     const offset = new THREE.Vector3(0, dist * 0.6, dist).normalize().multiplyScalar(dist);
     camera.position.copy(target.clone().add(offset));
     ctrl.target.copy(target);
     ctrl.update();
-  }, [selectedId, camera, controls, focusOverrideRef]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  return null;
+}
+
+/** Runs once on mount: positions the camera so Mars's orbit fits the smaller viewport dimension. */
+function InitialCameraFit() {
+  const { camera, size, controls } = useThree() as unknown as {
+    camera: THREE.PerspectiveCamera;
+    size: { width: number; height: number };
+    controls: OrbitControlsImpl | null;
+  };
+  const fitted = useRef(false);
+
+  useEffect(() => {
+    if (fitted.current) return;
+    if (!size.width || !size.height) return;
+    const mars = PLANET_ELEMENTS.find((p) => p.name === 'Mars');
+    if (!mars) return;
+
+    // Mars orbit radius in world units — keep DISTANCE_SCALE symbolic so future
+    // changes to scale automatically rescale this initial framing.
+    const radius = mars.a * DISTANCE_SCALE;
+
+    const vFov = (camera.fov * Math.PI) / 180;
+    const aspect = size.width / size.height;
+    const hFov = 2 * Math.atan(Math.tan(vFov / 2) * aspect);
+    // Smaller viewport dimension → tighter FOV constraint
+    const fov = Math.min(vFov, hFov);
+    const dist = (radius / Math.tan(fov / 2)) * 1.05; // 5% margin
+
+    camera.position.set(0, dist * 0.4, dist);
+    camera.lookAt(0, 0, 0);
+    camera.updateProjectionMatrix();
+
+    if (controls) {
+      controls.target.set(0, 0, 0);
+      controls.update();
+    }
+    fitted.current = true;
+  }, [camera, size, controls]);
+
+  return null;
+}
+
+/** Listens on the canvas DOM element for any user input (pointerdown/wheel) and
+ *  flips the focus override to 'static' so FocusTracker stops snapping the camera. */
+/** Tracks pointer movement between down/up so we can distinguish a true click
+ *  from a drag. Exposed via module-level flag for the asteroid click handler. */
+const dragState = { downX: 0, downY: 0, isDrag: false };
+const DRAG_THRESHOLD_PX = 5;
+
+function ControlsInteractionGuard() {
+  const { gl } = useThree();
+  useEffect(() => {
+    const canvas = gl.domElement;
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.target !== canvas) return;
+      dragState.downX = e.clientX;
+      dragState.downY = e.clientY;
+      dragState.isDrag = false;
+    };
+    const onPointerMove = (e: PointerEvent) => {
+      if (e.target !== canvas) return;
+      const dx = e.clientX - dragState.downX;
+      const dy = e.clientY - dragState.downY;
+      if (dx * dx + dy * dy > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) {
+        if (!dragState.isDrag) {
+          dragState.isDrag = true;
+          setOverride('static');
+        }
+      }
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.target === canvas) setOverride('static');
+    };
+    window.addEventListener('pointerdown', onPointerDown, true);
+    window.addEventListener('pointermove', onPointerMove, true);
+    window.addEventListener('wheel', onWheel, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener('pointerdown', onPointerDown, true);
+      window.removeEventListener('pointermove', onPointerMove, true);
+      window.removeEventListener('wheel', onWheel, true);
+    };
+  }, [gl]);
   return null;
 }
 
 function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChange, onSelectAsteroid }: Props) {
   const controlsRef = useRef<OrbitControlsImpl>(null);
-  const focusOverrideRef = useRef<FocusOverride>(null);
+  const focusOverrideRef = focusOverrideShared;
+  const [focusedPlanet, setFocusedPlanet] = useState<string | null>(null);
 
   const selectedPos = useMemo(() => {
     if (!selected) return null;
@@ -190,14 +278,19 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
   }, [selected, dayOffset]);
 
   const handleAsteroidClick = useCallback((index: number) => {
+    // Suppress click if it was actually a drag — otherwise dragging the camera
+    // over the cloud re-selects an asteroid and re-triggers CameraFocus jump.
+    if (dragState.isDrag) return;
     if (index >= 0 && index < asteroids.length && onSelectAsteroid) {
       onSelectAsteroid(asteroids[index]);
     }
   }, [asteroids, onSelectAsteroid]);
 
+
   const handlePlanetSelect = useCallback((name: string, position: THREE.Vector3) => {
     if (!controlsRef.current) return;
     focusOverrideRef.current = focusTargetToOverride({ type: 'planet', name });
+    setFocusedPlanet(name);
     const ctrl = controlsRef.current;
     const cam = ctrl.object as THREE.PerspectiveCamera;
     const dist = Math.max(0.005, position.length() * 0.05);
@@ -210,9 +303,31 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
   const handleSunClick = useCallback(() => {
     if (!controlsRef.current) return;
     focusOverrideRef.current = focusTargetToOverride({ type: 'sun' });
+    setFocusedPlanet(null);
     controlsRef.current.target.set(0, 0, 0);
     controlsRef.current.update();
   }, []);
+
+  const focusedPlanetDef = useMemo(
+    () => (focusedPlanet ? PLANET_ELEMENTS.find((p) => p.name === focusedPlanet) ?? null : null),
+    [focusedPlanet],
+  );
+
+  const getFocusedPlanetPos = useCallback((): THREE.Vector3 | null => {
+    if (!focusedPlanetDef) return null;
+    const p = focusedPlanetDef;
+    const ma = propagateMeanAnomaly(p.ma0, p.a, dayOffset);
+    const pos = keplerToCartesian({
+      a: p.a * DISTANCE_SCALE, e: p.e, i: p.i,
+      om: p.om, w: p.w, ma,
+    });
+    return new THREE.Vector3(pos.x, pos.z, pos.y);
+  }, [focusedPlanetDef, dayOffset]);
+
+  const getSelectedAsteroidPos = useCallback((): THREE.Vector3 | null => {
+    if (!selected) return null;
+    return asteroidPosition(selected, dayOffset);
+  }, [selected, dayOffset]);
 
   return (
     <>
@@ -225,12 +340,12 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
 
       <group onClick={handleSunClick}>
         <SunGlow />
-        <Html position={[0, 0.05, 0]} center>
+        <Html position={[0, 0.025, 0]} center>
           <div
             onClick={(e) => { e.stopPropagation(); handleSunClick(); }}
             style={{
               color: '#ffeeaa',
-              fontSize: '10px',
+              fontSize: '16px',
               fontWeight: 600,
               textShadow: '0 0 4px rgba(0,0,0,0.9)',
               cursor: 'pointer',
@@ -264,7 +379,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
       {selected && <OrbitLine asteroid={selected} />}
       {selected && <TransferArc asteroid={selected} dayOffset={dayOffset} onClickLabel={(pos) => {
         if (!controlsRef.current) return;
-        focusOverrideRef.current = focusTargetToOverride({ type: 'spacecraft' });
+        focusOverrideRef.current = 'static';
         const ctrl = controlsRef.current;
         const cam = ctrl.object as THREE.PerspectiveCamera;
         const dist = Math.max(0.005, pos.length() * 0.05);
@@ -273,8 +388,24 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
         cam.position.copy(pos.clone().add(offset));
         ctrl.update();
       }} />}
-      <CameraFocus target={selectedPos} selectedId={selected?.spkid ?? null} controls={controlsRef} focusOverrideRef={focusOverrideRef} />
+      <CameraFocus target={selectedPos} selectedId={selected?.spkid ?? null} controls={controlsRef} />
       <FocusTracker focusOverrideRef={focusOverrideRef} controls={controlsRef} dayOffset={dayOffset} selected={selected} />
+      <InitialCameraFit />
+
+      {focusedPlanetDef && (
+        <FocusRing
+          getPosition={getFocusedPlanetPos}
+          radius={focusedPlanetDef.size * 2.5}
+          color={focusedPlanetDef.color}
+        />
+      )}
+      {selected && (
+        <FocusRing
+          getPosition={getSelectedAsteroidPos}
+          radius={0.002}
+          color="#ffffff"
+        />
+      )}
 
       <OrbitControls
         ref={controlsRef}
@@ -285,6 +416,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
         maxDistance={200}
         makeDefault
       />
+      <ControlsInteractionGuard />
     </>
   );
 }

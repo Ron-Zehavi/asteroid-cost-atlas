@@ -100,7 +100,9 @@ export function TransferArc({ asteroid, dayOffset, onClickLabel }: Props) {
       return {
         phase: 'window_open' as const,
         line,
-        labelPos: astLabel,
+        // Anchor info to Earth during the launch window — spacecraft hasn't
+        // launched yet, so Earth (the departure point) is the relevant body.
+        labelPos: new THREE.Vector3(earthNow.x, earthNow.y + 0.02, earthNow.z),
         daysRemaining: mission.daysUntil ?? 0,
         dv: a.delta_v_km_s,
         transferDays: Math.round(transfer.transfer_days),
@@ -225,15 +227,6 @@ export function TransferArc({ asteroid, dayOffset, onClickLabel }: Props) {
   if (scene.phase === 'arrived') {
     return (
       <group>
-        <mesh position={scene.pos}>
-          <sphereGeometry args={[0.04, 16, 16]} />
-          <meshBasicMaterial
-            color="#44ff44"
-            transparent
-            opacity={0.6}
-            blending={THREE.AdditiveBlending}
-          />
-        </mesh>
         <Html position={[scene.pos.x, scene.pos.y + 0.08, scene.pos.z]} center>
           <div style={{ ...labelStyle('#44ff44'), cursor: 'pointer' }} onClick={(e) => { e.stopPropagation(); onClickLabel?.(scene.pos); }}>
             <div style={{ fontWeight: 700, color: '#66ff66' }}>
