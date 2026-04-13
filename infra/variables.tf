@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "aws_profile" {
   description = "AWS CLI profile name (null in CI/CD where OIDC provides credentials)"
   type        = string
-  default     = "asteroid"
+  default     = "personal"
 }
 
 variable "project" {
