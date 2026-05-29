@@ -246,6 +246,39 @@ export function AsteroidDetail({ asteroid, onClose, onPin, isPinned }: Props) {
         <Row label="Total Revenue" value={fmtUsd(campaign.totalRevenue)} />
         <Row label="Total Cost" value={fmtUsd(campaign.totalCost)} />
         <Row label="Total Profit" value={fmtUsd(campaign.totalProfit)} />
+
+        {campaign.missions.length > 0 && (
+          <table className="scenario-table mission-breakdown">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Payload</th>
+                <th>Mix</th>
+                <th>Profit</th>
+              </tr>
+            </thead>
+            <tbody>
+              {campaign.missions.map((m, i) => {
+                const target = DEFAULT_MISSION_KG;
+                const isPartial = m.payloadKg < target - 1;
+                return (
+                  <tr key={i}>
+                    <td className="detail-label">{i + 1}</td>
+                    <td title={isPartial ? 'Last mission — inventory ran out before reaching the 100 t target.' : undefined}>
+                      {fmtKg(m.payloadKg)}{isPartial && <span className="mission-partial"> · partial</span>}
+                    </td>
+                    <td title={m.mix.map((x) => `${x.name} ${fmtKg(x.kg)}`).join(', ')}>
+                      {topMetal(m)}
+                    </td>
+                    <td className={m.feasible ? 'profit-positive' : 'profit-negative'}>
+                      {fmtUsd(m.profit)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
       </div>
 
       <div className="detail-section">

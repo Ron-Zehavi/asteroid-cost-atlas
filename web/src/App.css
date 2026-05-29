@@ -408,6 +408,28 @@ body {
   background: rgba(79, 195, 247, 0.04);
 }
 .detail-disclaimer h3 { color: var(--text-dim); border: none; padding: 0; }
+.mission-breakdown {
+  margin-top: 10px;
+  font-size: 11px;
+}
+.mission-breakdown th {
+  color: var(--text-dim);
+  font-weight: 500;
+  text-align: right;
+  padding: 4px 6px;
+}
+.mission-breakdown th:first-child,
+.mission-breakdown th:nth-child(3) { text-align: left; }
+.mission-breakdown td { font-size: 11px; }
+.mission-breakdown td:nth-child(3) {
+  text-align: left;
+  color: var(--text-dim);
+}
+.mission-partial {
+  color: var(--text-dim);
+  font-size: 10px;
+  font-style: italic;
+}
 .detail-disclaimer p { font-size: 11px; color: var(--text-dim); margin: 0 0 8px; line-height: 1.5; }
 .detail-disclaimer ul { font-size: 11px; color: var(--text-dim); margin: 0 0 8px 18px; line-height: 1.5; }
 .detail-disclaimer li { margin-bottom: 3px; }
