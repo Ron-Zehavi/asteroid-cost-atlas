@@ -39,6 +39,13 @@ body {
   font-weight: 600;
   white-space: nowrap;
 }
+.data-freshness {
+  font-size: 11px;
+  color: var(--text-dim);
+  white-space: nowrap;
+  border-left: 1px solid var(--border);
+  padding-left: 12px;
+}
 
 .color-select {
   padding: 4px 8px;

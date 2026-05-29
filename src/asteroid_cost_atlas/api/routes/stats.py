@@ -4,10 +4,21 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from asteroid_cost_atlas.api.deps import db_sql, get_db
+from asteroid_cost_atlas.api.deps import _resolve_processed_dir, db_sql, get_db
 from asteroid_cost_atlas.utils.query import CostAtlasDB
 
 router = APIRouter(prefix="/api", tags=["stats"])
+
+
+def _latest_atlas_date() -> str | None:
+    """Derive YYYY-MM-DD from the newest atlas_YYYYMMDD.parquet filename."""
+    files = sorted(_resolve_processed_dir().glob("atlas_*.parquet"))
+    if not files:
+        return None
+    date_str = files[-1].stem.split("_")[-1]
+    if len(date_str) == 8 and date_str.isdigit():
+        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:]}"
+    return None
 
 
 def _build_where(
@@ -60,7 +71,9 @@ def stats(
         FROM atlas
         {where}
     """, params or None)
-    return rows[0] if rows else {}
+    result: dict[str, object] = dict(rows[0]) if rows else {}
+    result["last_updated"] = _latest_atlas_date()
+    return result
 
 
 @router.get("/charts/delta-v")

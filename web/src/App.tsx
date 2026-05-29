@@ -57,6 +57,11 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>Asteroid Atlas</h1>
+        {stats?.last_updated && (
+          <span className="data-freshness" title="Date of the latest atlas snapshot">
+            Data {stats.last_updated}
+          </span>
+        )}
         <SearchBox onSelect={setSelected} />
         <select
           className="color-select"

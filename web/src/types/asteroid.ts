@@ -59,6 +59,7 @@ export interface Stats {
   max_delta_v: number;
   median_delta_v: number;
   avg_delta_v: number;
+  last_updated: string | null;
 }
 
 export interface HistogramBin {
