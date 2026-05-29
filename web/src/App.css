@@ -555,6 +555,69 @@ body {
 .methodology-content th { background: var(--surface); }
 .methodology-loading, .methodology-error { color: var(--text-dim); text-align: center; padding: 40px; }
 .methodology-error { color: var(--danger); }
+
+/* Mobile / narrow viewports */
+@media (max-width: 768px) {
+  body { font-size: 12px; }
+
+  .app-header {
+    flex-wrap: wrap;
+    row-gap: 6px;
+    padding: 8px 12px;
+  }
+  .app-header h1 { font-size: 14px; }
+  .data-freshness { padding-left: 8px; }
+  .search-box { flex: 1 0 100%; max-width: none; order: 5; }
+  .color-select { margin-left: 0; font-size: 11px; padding: 3px 6px; }
+
+  .stats-cards {
+    overflow-x: auto;
+    justify-content: flex-start;
+    gap: 12px;
+    padding: 6px 12px;
+    flex-wrap: nowrap;
+  }
+  .stat-card { min-width: 80px; flex: 0 0 auto; }
+
+  .filter-bar { padding: 8px 12px; font-size: 11px; }
+  .filter-bar select, .filter-bar input { font-size: 11px; padding: 3px 6px; }
+  .filter-range input { width: 60px; }
+
+  .main-content { flex-direction: column; }
+  .panel-resizer { display: none; }
+  .table-panel {
+    width: 100% !important;
+    height: 50vh;
+    min-height: 240px;
+    border-bottom: 1px solid var(--border);
+  }
+  .scene-panel { flex: 1; min-height: 280px; }
+
+  .asteroid-table { font-size: 11px; }
+  .asteroid-table th, .asteroid-table td { padding: 4px; }
+
+  .detail-drawer { padding: 12px; }
+  .detail-section h3 { font-size: 10px; }
+  .detail-row { font-size: 11px; }
+
+  .methodology-content { padding: 16px 18px; font-size: 13px; }
+  .methodology-content h1 { font-size: 18px; }
+  .methodology-content h2 { font-size: 15px; }
+  .methodology-content h3 { font-size: 13px; }
+  .methodology-header { padding: 10px 16px; }
+
+  .bottom-bar { padding: 4px 12px; }
+  .timeline-label { display: none; }
+
+  .modal-content { padding: 20px; max-width: 95vw; }
+}
+
+@media (max-width: 480px) {
+  .app-header h1 { font-size: 13px; }
+  .about-btn { padding: 3px 7px; font-size: 11px; }
+  .stat-value { font-size: 13px; }
+  .stat-label { font-size: 9px; }
+}
 .pin-btn {
   padding: 2px 8px;
   background: var(--bg);
