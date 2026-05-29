@@ -64,7 +64,7 @@ jobs:
           role-to-assume: ${{ env.ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
 
-      - name: Trigger dev App Runner deployment
+      - name: Trigger dev App Runner deployment (skipped if paused)
         run: |
           ARN=$(aws apprunner list-services --region $AWS_REGION \
             --query "ServiceSummaryList[?ServiceName=='asteroid-cost-atlas-dev'].ServiceArn | [0]" \
@@ -72,6 +72,13 @@ jobs:
           if [ -z "$ARN" ] || [ "$ARN" = "None" ]; then
             echo "Dev App Runner service not found — create it via terraform first"
             exit 1
+          fi
+          STATUS=$(aws apprunner describe-service --service-arn "$ARN" --region $AWS_REGION \
+            --query 'Service.Status' --output text)
+          if [ "$STATUS" = "PAUSED" ]; then
+            echo "Dev service is PAUSED — image is published to ECR, skipping App Runner deploy."
+            echo "To enable dev again, run: make dev-up (see DEPLOY.md)."
+            exit 0
           fi
           aws apprunner start-deployment --service-arn "$ARN" --region $AWS_REGION
 

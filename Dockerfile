@@ -21,4 +21,4 @@ RUN useradd -m -u 1000 appuser
 USER appuser
 
 EXPOSE 8000
-CMD ["uvicorn", "asteroid_cost_atlas.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "asteroid_cost_atlas.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]

@@ -1,15 +1,32 @@
 # Deploy
 
-Two App Runner environments. CI builds once, deploys to dev automatically, then waits for your one-click approval before promoting to prod.
+Two App Runner environments. CI builds once, deploys to dev automatically (if running), then waits for your one-click approval before promoting to prod.
 
-| Env | Service | Pulls tag | URL |
-|---|---|---|---|
-| dev | `asteroid-cost-atlas-dev` | `:dev` | <https://xgdxw8jhbf.us-east-1.awsapprunner.com> |
-| prod | `asteroid-cost-atlas-prod` | `:prod` | <https://p6jxczwt29.us-east-1.awsapprunner.com> |
+| Env | Service | Pulls tag | Origin URL | CloudFront URL (public) |
+|---|---|---|---|---|
+| dev | `asteroid-cost-atlas-dev` | `:dev` | <https://xgdxw8jhbf.us-east-1.awsapprunner.com> | <https://d22ys99gy8q0a7.cloudfront.net> |
+| prod | `asteroid-cost-atlas-prod` | `:prod` | <https://p6jxczwt29.us-east-1.awsapprunner.com> | <https://degvct20vchf3.cloudfront.net> |
+
+CloudFront fronts both envs to capture real client IPs in S3 access logs. The App Runner origin URLs still work directly (unrestricted); future origin lock-down is a TODO.
+
+## Dev is paused by default
+
+Dev App Runner costs ~$10/mo even when idle (provisioned warm instance). It's paused unless you're actively developing.
+
+```bash
+make dev-status    # PAUSED | RUNNING | OPERATION_IN_PROGRESS
+make dev-up        # before you start dev work (~1 min to RUNNING)
+make dev-down      # when you're done for the day
+```
+
+While paused: the CI `deploy-dev` job detects it and skips the App Runner deployment (the image still gets built + pushed to ECR as `:dev`). Prod deploy continues normally on approval.
 
 ## Daily flow
 
 ```bash
+# 0. Wake dev (only if you need a hosted dev env for this change)
+make dev-up
+
 # 1. Develop
 git checkout -b feature/whatever
 # ...edit code...
@@ -20,16 +37,19 @@ make test && make lint && make typecheck
 git push -u origin feature/whatever
 gh pr create --base main
 # ...merge PR on GitHub UI...
-# CI: builds image → pushes :sha-xxx + :dev → deploys to dev (~5 min)
+# CI: builds image → pushes :sha-xxx + :dev
+#     → deploys to dev if RUNNING (else skips, image is still in ECR)
 
-# 3. Smoke-test dev
+# 3. Smoke-test dev (if it's running)
 curl https://<dev-url>/api/health
-# poke around the live dev URL
 
 # 4. Promote to prod
 # Go to repo → Actions → click the running workflow → "Review deployments"
 # → check "production" → Approve and deploy
 # CI: retags :sha-xxx as :prod → deploys to prod (~5 min)
+
+# 5. Pause dev when you're done for the day
+make dev-down
 ```
 
 ## Refresh data

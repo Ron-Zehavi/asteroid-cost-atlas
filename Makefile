@@ -2,6 +2,7 @@
 .PHONY: ingest-horizons clean-data enrich score-orbital score-physical score-composition atlas
 .PHONY: query serve web-dev web-build web-test test test-all
 .PHONY: docker lint format typecheck clean clean-outputs data-info help ship
+.PHONY: dev-up dev-down dev-status
 
 PYTHON_VERSION := $(shell python3 -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')" 2>/dev/null || echo "0.0")
 MIN_PYTHON := 3.11
@@ -123,6 +124,19 @@ data-info: ## Show available pipeline outputs and their fetch metadata
 
 ship: ## Run all checks, push branch, and open PR to main
 	TITLE="$(TITLE)" ./scripts/ship.sh $(TITLE)
+
+DEV_ARN := arn:aws:apprunner:us-east-1:975050282139:service/asteroid-cost-atlas-dev/148c516430a04b11bf4c2c68f55a6e9a
+
+dev-up: ## Resume the paused dev App Runner service (~1 min)
+	@aws apprunner resume-service --service-arn $(DEV_ARN) --region us-east-1 --profile personal --query 'Service.Status' --output text
+	@echo "Resuming — poll with: make dev-status"
+
+dev-down: ## Pause the dev App Runner service to stop billing (~1 min)
+	@aws apprunner pause-service --service-arn $(DEV_ARN) --region us-east-1 --profile personal --query 'Service.Status' --output text
+	@echo "Pausing — poll with: make dev-status"
+
+dev-status: ## Show current dev App Runner status
+	@aws apprunner describe-service --service-arn $(DEV_ARN) --region us-east-1 --profile personal --query 'Service.Status' --output text
 
 clean: ## Remove build artifacts and caches
 	rm -rf dist build .eggs
