@@ -137,6 +137,12 @@ export default function App() {
             onDayOffsetChange={setDayOffset}
             onSelectAsteroid={setSelected}
           />
+          {loading && (
+            <div className="scene-loading" role="status" aria-live="polite">
+              <div className="scene-loading-spinner" />
+              <span>Loading asteroids…</span>
+            </div>
+          )}
         </div>
       </div>
 
