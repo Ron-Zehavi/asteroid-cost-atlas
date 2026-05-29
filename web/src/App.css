@@ -206,6 +206,7 @@ body {
   font-size: 12px;
 }
 .pagination button:disabled { opacity: 0.4; cursor: default; }
+.pagination-spacer { flex: 1; }
 
 /* Scene */
 .scene-panel {

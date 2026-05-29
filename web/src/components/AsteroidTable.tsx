@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Asteroid } from '../types/asteroid';
 import { extractionInventory, METALS, METAL_PRICES } from '../utils/mining';
+import { exportAsteroidsCsv, exportAsteroidsJson } from '../utils/export';
 
 function fmtN(n: number | null | undefined, d = 0): string {
   if (n == null || !isFinite(n)) return '—';
@@ -137,6 +138,17 @@ export function AsteroidTable({
         <button onClick={onPrev} disabled={offset === 0}>Prev</button>
         <span>{offset + 1}–{Math.min(offset + limit, total)} of {total.toLocaleString()}</span>
         <button onClick={onNext} disabled={offset + limit >= total}>Next</button>
+        <span className="pagination-spacer" />
+        <button
+          onClick={() => exportAsteroidsCsv(asteroids)}
+          disabled={asteroids.length === 0}
+          title="Download the current page as CSV"
+        >Export CSV</button>
+        <button
+          onClick={() => exportAsteroidsJson(asteroids)}
+          disabled={asteroids.length === 0}
+          title="Download the current page as JSON"
+        >Export JSON</button>
       </div>
     </div>
   );
