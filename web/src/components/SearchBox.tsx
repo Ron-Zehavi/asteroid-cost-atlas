@@ -65,6 +65,13 @@ export function SearchBox({ onSelect }: Props) {
     }
   }, [open, results, activeIdx, pick]);
 
+  const listboxId = 'search-results-listbox';
+  const optionId = (spkid: number) => `search-opt-${spkid}`;
+  const activeId =
+    open && activeIdx >= 0 && results[activeIdx]
+      ? optionId(results[activeIdx].spkid)
+      : undefined;
+
   return (
     <div className="search-box">
       <input
@@ -75,14 +82,23 @@ export function SearchBox({ onSelect }: Props) {
         onFocus={() => results.length > 0 && setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 200)}
         onKeyDown={onKeyDown}
+        role="combobox"
         aria-autocomplete="list"
         aria-expanded={open && results.length > 0}
+        aria-controls={listboxId}
+        aria-activedescendant={activeId}
       />
       {open && results.length > 0 && (
-        <ul className="search-results" ref={listRef} role="listbox">
+        <ul
+          className="search-results"
+          ref={listRef}
+          role="listbox"
+          id={listboxId}
+        >
           {results.map((a, idx) => (
             <li
               key={a.spkid}
+              id={optionId(a.spkid)}
               role="option"
               aria-selected={idx === activeIdx}
               className={idx === activeIdx ? 'active' : ''}

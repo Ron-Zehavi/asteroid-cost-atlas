@@ -1,16 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AsteroidTable } from './components/AsteroidTable';
 import { AsteroidDetail } from './components/AsteroidDetail';
 import { FilterBar } from './components/FilterBar';
 import { SearchBox } from './components/SearchBox';
 import { StatsCards } from './components/StatsCards';
 import { AboutModal } from './components/AboutModal';
-import { MethodologyView } from './components/MethodologyView';
 import { TimelineSlider, todayOffset, type PlaySpeed } from './components/TimelineSlider';
 import { SolarSystem } from './components/scene/SolarSystem';
 import { useAsteroids } from './hooks/useAsteroids';
 import { useStats } from './hooks/useStats';
 import { computeHohmannTransfer, estimateLaunchWindows } from './utils/transfer';
+
+const MethodologyView = lazy(() =>
+  import('./components/MethodologyView').then((m) => ({ default: m.MethodologyView })),
+);
 
 import './App.css';
 
@@ -18,10 +21,21 @@ type ColorBy = 'composition' | 'delta_v' | 'viable' | 'confidence';
 
 export default function App() {
   const {
-    asteroids, total, filters, loading,
+    asteroids, total, filters, loading, hasLoadedOnce,
     selected, setSelected,
-    updateFilters, nextPage, prevPage, toggleSort,
+    updateFilters, clearFilters, nextPage, prevPage, toggleSort,
+    notice, dismissNotice,
   } = useAsteroids();
+
+  // Show scene loading overlay on initial load; debounce subsequent refetches
+  // by 300ms so brief flickers from filter typing don't show a spinner.
+  const [showSceneLoading, setShowSceneLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) { setShowSceneLoading(false); return; }
+    if (!hasLoadedOnce) { setShowSceneLoading(true); return; }
+    const t = setTimeout(() => setShowSceneLoading(true), 300);
+    return () => clearTimeout(t);
+  }, [loading, hasLoadedOnce]);
   const stats = useStats(filters);
   const [colorBy, setColorBy] = useState<ColorBy>('composition');
   const [dayOffset, setDayOffset] = useState(todayOffset);
@@ -98,8 +112,15 @@ export default function App() {
         <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
       </header>
 
+      {notice && (
+        <div className="notice-banner" role="alert">
+          <span>{notice}</span>
+          <button onClick={dismissNotice} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       <StatsCards stats={stats} />
-      <FilterBar filters={filters} onUpdate={updateFilters} />
+      <FilterBar filters={filters} onUpdate={updateFilters} onClear={clearFilters} />
 
       <div className="main-content" ref={mainRef}>
         <div className={`table-panel${selected ? ' table-panel--detail' : ''}`} style={{ width: `${panelWidth}%` }}>
@@ -164,7 +185,7 @@ export default function App() {
             onDayOffsetChange={setDayOffset}
             onSelectAsteroid={setSelected}
           />
-          {loading && (
+          {showSceneLoading && (
             <div className="scene-loading" role="status" aria-live="polite">
               <div className="scene-loading-spinner" />
               <span>Loading asteroids…</span>
@@ -184,7 +205,11 @@ export default function App() {
       </div>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-      {showMethodology && <MethodologyView onClose={closeMethodology} />}
+      {showMethodology && (
+        <Suspense fallback={<div className="methodology-view"><p className="methodology-loading">Loading methodology…</p></div>}>
+          <MethodologyView onClose={closeMethodology} />
+        </Suspense>
+      )}
     </div>
   );
 }

@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Filters } from '../types/asteroid';
 
 interface Props {
   filters: Filters;
   onUpdate: (patch: Partial<Filters>) => void;
+  onClear: () => void;
 }
 
 const ORBIT_CLASSES: { value: string; label: string }[] = [
@@ -24,8 +25,32 @@ function numOrUndef(v: string): number | undefined {
   return v === '' ? undefined : Number(v);
 }
 
-export function FilterBar({ filters, onUpdate }: Props) {
+function isRangeInverted(min: number | undefined, max: number | undefined): boolean {
+  return min !== undefined && max !== undefined && min > max;
+}
+
+export function FilterBar({ filters, onUpdate, onClear }: Props) {
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const activeCount = useMemo(() => {
+    let n = 0;
+    if (filters.neo) n++;
+    if (filters.is_viable !== undefined) n++;
+    if (filters.composition_class) n++;
+    if (filters.orbit_class) n++;
+    if (filters.dv_min !== undefined) n++;
+    if (filters.dv_max !== undefined && filters.dv_max !== 3) n++; // 3 is the default
+    if (filters.inclination_max !== undefined) n++;
+    if (filters.tisserand_min !== undefined) n++;
+    if (filters.tisserand_max !== undefined) n++;
+    if (filters.diameter_min !== undefined) n++;
+    if (filters.diameter_max !== undefined) n++;
+    return n;
+  }, [filters]);
+
+  const tisserandInverted = isRangeInverted(filters.tisserand_min, filters.tisserand_max);
+  const diameterInverted = isRangeInverted(filters.diameter_min, filters.diameter_max);
+  const dvInverted = isRangeInverted(filters.dv_min, filters.dv_max);
 
   return (
     <div className="filter-bar">
@@ -69,6 +94,7 @@ export function FilterBar({ filters, onUpdate }: Props) {
           min={0}
           step={0.5}
           placeholder="km/s"
+          className={dvInverted ? 'filter-input-error' : ''}
           value={filters.dv_max ?? ''}
           onChange={(e) => onUpdate({ dv_max: numOrUndef(e.target.value) })}
         />
@@ -80,15 +106,24 @@ export function FilterBar({ filters, onUpdate }: Props) {
         onClick={() => setAdvancedOpen((v) => !v)}
         aria-expanded={advancedOpen}
       >
-        Advanced {advancedOpen ? '▴' : '▾'}
+        Advanced{activeCount > 0 ? ` (${activeCount})` : ''} {advancedOpen ? '▴' : '▾'}
       </button>
+
+      {activeCount > 0 && (
+        <button
+          type="button"
+          className="filter-clear"
+          onClick={onClear}
+          title="Reset all filters to defaults"
+        >Clear</button>
+      )}
 
       {advancedOpen && (
         <>
           <select
             value={filters.orbit_class ?? ''}
             onChange={(e) => onUpdate({ orbit_class: e.target.value || undefined })}
-            title="Dynamical orbit class"
+            title="Dynamical orbit class (Amor/Apollo/Aten = near-Earth, MBA = main belt, etc.)"
           >
             <option value="">All Orbits</option>
             {ORBIT_CLASSES.map((o) => (
@@ -109,19 +144,23 @@ export function FilterBar({ filters, onUpdate }: Props) {
             />
           </label>
 
-          <label className="filter-range" title="Tisserand parameter w.r.t. Jupiter">
+          <label className="filter-range" title="Tisserand parameter w.r.t. Jupiter. NEAs: T_J > 3. Comets: T_J < 3.">
             T_J:
             <input
               type="number"
+              min={0}
               step={0.1}
               placeholder="min"
+              className={tisserandInverted ? 'filter-input-error' : ''}
               value={filters.tisserand_min ?? ''}
               onChange={(e) => onUpdate({ tisserand_min: numOrUndef(e.target.value) })}
             />
             <input
               type="number"
+              min={0}
               step={0.1}
               placeholder="max"
+              className={tisserandInverted ? 'filter-input-error' : ''}
               value={filters.tisserand_max ?? ''}
               onChange={(e) => onUpdate({ tisserand_max: numOrUndef(e.target.value) })}
             />
@@ -134,6 +173,7 @@ export function FilterBar({ filters, onUpdate }: Props) {
               min={0}
               step={0.1}
               placeholder="min"
+              className={diameterInverted ? 'filter-input-error' : ''}
               value={filters.diameter_min ?? ''}
               onChange={(e) => onUpdate({ diameter_min: numOrUndef(e.target.value) })}
             />
@@ -142,10 +182,15 @@ export function FilterBar({ filters, onUpdate }: Props) {
               min={0}
               step={0.1}
               placeholder="max"
+              className={diameterInverted ? 'filter-input-error' : ''}
               value={filters.diameter_max ?? ''}
               onChange={(e) => onUpdate({ diameter_max: numOrUndef(e.target.value) })}
             />
           </label>
+
+          {(tisserandInverted || diameterInverted || dvInverted) && (
+            <span className="filter-warning">⚠ min &gt; max — no results</span>
+          )}
         </>
       )}
     </div>

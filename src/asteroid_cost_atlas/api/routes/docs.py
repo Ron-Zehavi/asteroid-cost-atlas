@@ -19,10 +19,16 @@ def _docs_root() -> Path:
     return Path("/app/docs")
 
 
-@router.get("/methodology", response_class=PlainTextResponse)
-def methodology() -> str:
-    """Raw markdown of the methodology document."""
+@router.get("/methodology")
+def methodology() -> PlainTextResponse:
+    """Raw markdown of the methodology document.
+
+    Cached for 1 hour at the edge to avoid hitting the disk per pageview.
+    """
     path = _docs_root() / "METHODOLOGY.md"
     if not path.exists():
         raise HTTPException(404, "Methodology document not found")
-    return path.read_text(encoding="utf-8")
+    return PlainTextResponse(
+        content=path.read_text(encoding="utf-8"),
+        headers={"Cache-Control": "public, max-age=3600"},
+    )

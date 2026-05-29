@@ -50,7 +50,9 @@ export function exportAsteroidsCsv(rows: Asteroid[]): void {
   const lines = rows.map((r) =>
     EXPORT_COLUMNS.map((c) => csvCell(r[c])).join(','),
   );
-  download(`asteroid-atlas_${timestamp()}.csv`, [header, ...lines].join('\n'), 'text/csv');
+  // UTF-8 BOM so Excel reads non-ASCII names correctly.
+  const csv = '﻿' + [header, ...lines].join('\n');
+  download(`asteroid-atlas_${timestamp()}.csv`, csv, 'text/csv;charset=utf-8');
 }
 
 export function exportAsteroidsJson(rows: Asteroid[]): void {
