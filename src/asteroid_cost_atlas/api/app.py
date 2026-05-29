@@ -16,7 +16,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 from asteroid_cost_atlas.api.deps import create_db
-from asteroid_cost_atlas.api.routes import asteroids, search, stats
+from asteroid_cost_atlas.api.routes import asteroids, docs, search, stats
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +84,7 @@ def health() -> dict[str, str]:
 app.include_router(asteroids.router)
 app.include_router(stats.router)
 app.include_router(search.router)
+app.include_router(docs.router)
 
 # Serve built React frontend if it exists (must be last — catches all unmatched routes)
 def _resolve_web_dist() -> Path:

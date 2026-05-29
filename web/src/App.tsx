@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AsteroidTable } from './components/AsteroidTable';
 import { AsteroidDetail } from './components/AsteroidDetail';
 import { FilterBar } from './components/FilterBar';
 import { SearchBox } from './components/SearchBox';
 import { StatsCards } from './components/StatsCards';
 import { AboutModal } from './components/AboutModal';
+import { MethodologyView } from './components/MethodologyView';
 import { TimelineSlider, todayOffset, type PlaySpeed } from './components/TimelineSlider';
 import { SolarSystem } from './components/scene/SolarSystem';
 import { useAsteroids } from './hooks/useAsteroids';
@@ -26,7 +27,27 @@ export default function App() {
   const [dayOffset, setDayOffset] = useState(todayOffset);
   const [speed, setSpeed] = useState<PlaySpeed>(10);
   const [showAbout, setShowAbout] = useState(false);
+  const [showMethodology, setShowMethodology] = useState(() =>
+    typeof window !== 'undefined' && window.location.hash === '#methodology',
+  );
   const [panelWidth, setPanelWidth] = useState(40); // table panel width %
+
+  useEffect(() => {
+    const onHash = () => setShowMethodology(window.location.hash === '#methodology');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const openMethodology = useCallback(() => {
+    window.location.hash = '#methodology';
+    setShowMethodology(true);
+  }, []);
+  const closeMethodology = useCallback(() => {
+    if (window.location.hash === '#methodology') {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    setShowMethodology(false);
+  }, []);
   const dragging = useRef(false);
   const mainRef = useRef<HTMLDivElement>(null);
 
@@ -73,6 +94,7 @@ export default function App() {
           <option value="viable">Color: Viability</option>
           <option value="confidence">Color: Confidence</option>
         </select>
+        <button className="about-btn" onClick={openMethodology}>Methodology</button>
         <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
       </header>
 
@@ -162,7 +184,7 @@ export default function App() {
       </div>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-      {/* <SpacecraftPreview /> */}
+      {showMethodology && <MethodologyView onClose={closeMethodology} />}
     </div>
   );
 }

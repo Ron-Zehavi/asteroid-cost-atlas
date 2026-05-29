@@ -474,6 +474,87 @@ body {
   cursor: pointer;
 }
 .detail-actions { display: flex; gap: 8px; align-items: center; }
+
+/* Methodology page */
+.methodology-view {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  z-index: 300;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.methodology-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 24px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+.methodology-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.methodology-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 32px 48px;
+  max-width: 900px;
+  width: 100%;
+  margin: 0 auto;
+  line-height: 1.65;
+  font-size: 14px;
+}
+.methodology-content h1 { font-size: 22px; margin: 24px 0 12px; color: var(--accent); }
+.methodology-content h2 { font-size: 18px; margin: 28px 0 10px; color: var(--accent); border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+.methodology-content h3 { font-size: 15px; margin: 20px 0 8px; color: var(--text); }
+.methodology-content h4 { font-size: 13px; margin: 16px 0 6px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.5px; }
+.methodology-content p { margin: 0 0 12px; }
+.methodology-content ul, .methodology-content ol { margin: 0 0 12px 24px; }
+.methodology-content li { margin-bottom: 4px; }
+.methodology-content code {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 12px;
+  background: var(--surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+}
+.methodology-content pre {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  margin: 0 0 14px;
+}
+.methodology-content pre code { background: none; border: none; padding: 0; font-size: 12px; }
+.methodology-content a { color: var(--accent); text-decoration: none; }
+.methodology-content a:hover { text-decoration: underline; }
+.methodology-content hr { border: none; border-top: 1px solid var(--border); margin: 24px 0; }
+.methodology-content blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 16px;
+  margin: 0 0 12px;
+  color: var(--text-dim);
+}
+.methodology-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 12px;
+}
+.methodology-content th, .methodology-content td {
+  border: 1px solid var(--border);
+  padding: 6px 10px;
+  text-align: left;
+}
+.methodology-content th { background: var(--surface); }
+.methodology-loading, .methodology-error { color: var(--text-dim); text-align: center; padding: 40px; }
+.methodology-error { color: var(--danger); }
 .pin-btn {
   padding: 2px 8px;
   background: var(--bg);
