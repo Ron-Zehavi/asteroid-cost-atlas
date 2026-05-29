@@ -1,6 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getAsteroids } from '../api/client';
+import { getAsteroid, getAsteroids } from '../api/client';
 import type { Asteroid, AsteroidListResponse, Filters } from '../types/asteroid';
+
+const PERMALINK_PARAM = 'asteroid';
+
+function readPermalink(): number | null {
+  const raw = new URLSearchParams(window.location.search).get(PERMALINK_PARAM);
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) ? n : null;
+}
+
+function writePermalink(spkid: number | null) {
+  const url = new URL(window.location.href);
+  if (spkid == null) url.searchParams.delete(PERMALINK_PARAM);
+  else url.searchParams.set(PERMALINK_PARAM, String(spkid));
+  window.history.replaceState(null, '', url.toString());
+}
 
 const DEFAULT_FILTERS: Filters = {
   sort: 'economic_priority_rank',
@@ -35,6 +50,17 @@ export function useAsteroids() {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    const spkid = readPermalink();
+    if (spkid != null) {
+      getAsteroid(spkid).then(setSelected).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    writePermalink(selected?.spkid ?? null);
+  }, [selected?.spkid]);
 
   const updateFilters = useCallback((patch: Partial<Filters>) => {
     setFilters((prev) => ({ ...prev, offset: 0, ...patch }));
