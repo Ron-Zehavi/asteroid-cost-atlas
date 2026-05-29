@@ -39,3 +39,5 @@ notebooks/.ipynb_checkpoints/
 *.tfstate
 *.tfstate.*
 tfplan
+*.plan
+logs/
