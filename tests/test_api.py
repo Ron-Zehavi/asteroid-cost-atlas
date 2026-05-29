@@ -288,3 +288,18 @@ class TestDocs:
         monkeypatch.setattr(docs_module, "_docs_root", lambda: tmp_path)
         resp = client.get("/api/docs/methodology")
         assert resp.status_code == 404
+
+    def test_methodology_emits_cache_control(
+        self, client: TestClient, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Edge/browser caching for a doc that changes only on deploy."""
+        from asteroid_cost_atlas.api.routes import docs as docs_module
+
+        (tmp_path / "METHODOLOGY.md").write_text("# Hi", encoding="utf-8")
+        monkeypatch.setattr(docs_module, "_docs_root", lambda: tmp_path)
+        resp = client.get("/api/docs/methodology")
+        assert resp.status_code == 200
+        cc = resp.headers.get("cache-control", "")
+        assert "max-age" in cc
+        assert "public" in cc

@@ -1,78 +1,22 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getAsteroid, getAsteroids } from '../api/client';
 import type { Asteroid, AsteroidListResponse, Filters } from '../types/asteroid';
+import {
+  applyFiltersToSearch,
+  DEFAULT_FILTERS,
+  parseFiltersFromSearch,
+} from '../utils/filterUrl';
 
 const PERMALINK_PARAM = 'asteroid';
 
-const DEFAULT_FILTERS: Filters = {
-  sort: 'economic_priority_rank',
-  order: 'asc',
-  limit: 200,
-  offset: 0,
-  dv_max: 3,
-};
-
-const URL_FILTER_KEYS = [
-  'neo', 'composition_class', 'orbit_class', 'viable',
-  'dv_min', 'dv_max', 'inclination_max',
-  'tisserand_min', 'tisserand_max',
-  'diameter_min', 'diameter_max',
-  'sort', 'order',
-] as const;
-
-const NUMERIC_KEYS = new Set([
-  'dv_min', 'dv_max', 'inclination_max',
-  'tisserand_min', 'tisserand_max',
-  'diameter_min', 'diameter_max',
-]);
-
 function readFiltersFromUrl(): Filters {
-  const params = new URLSearchParams(window.location.search);
-  const hasAnyFilter = URL_FILTER_KEYS.some((k) => params.has(k));
-  if (!hasAnyFilter) return { ...DEFAULT_FILTERS };
-
-  const f: Filters = { sort: 'economic_priority_rank', order: 'asc', limit: 200, offset: 0 };
-
-  for (const k of NUMERIC_KEYS) {
-    const v = params.get(k);
-    if (v != null && v !== '') {
-      const n = Number(v);
-      if (Number.isFinite(n)) (f as unknown as Record<string, unknown>)[k] = n;
-    }
-  }
-
-  for (const k of ['neo', 'composition_class', 'orbit_class'] as const) {
-    const v = params.get(k);
-    if (v) f[k] = v;
-  }
-
-  const viable = params.get('viable');
-  if (viable === 'true') f.is_viable = true;
-  else if (viable === 'false') f.is_viable = false;
-
-  const sort = params.get('sort');
-  if (sort) f.sort = sort;
-  const order = params.get('order');
-  if (order === 'asc' || order === 'desc') f.order = order;
-
-  return f;
+  return parseFiltersFromSearch(window.location.search);
 }
 
 function writeFiltersToUrl(filters: Filters): void {
   const url = new URL(window.location.href);
-  for (const k of URL_FILTER_KEYS) url.searchParams.delete(k);
-
-  if (filters.neo) url.searchParams.set('neo', filters.neo);
-  if (filters.composition_class) url.searchParams.set('composition_class', filters.composition_class);
-  if (filters.orbit_class) url.searchParams.set('orbit_class', filters.orbit_class);
-  if (filters.is_viable !== undefined) url.searchParams.set('viable', String(filters.is_viable));
-  if (filters.sort !== DEFAULT_FILTERS.sort) url.searchParams.set('sort', filters.sort);
-  if (filters.order !== DEFAULT_FILTERS.order) url.searchParams.set('order', filters.order);
-  for (const k of NUMERIC_KEYS) {
-    const v = (filters as unknown as Record<string, unknown>)[k];
-    if (typeof v === 'number') url.searchParams.set(k, String(v));
-  }
-
+  const next = applyFiltersToSearch(url.searchParams, filters);
+  url.search = next.toString();
   window.history.replaceState(null, '', url.toString());
 }
 
