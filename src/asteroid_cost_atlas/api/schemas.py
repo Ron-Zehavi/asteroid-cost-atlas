@@ -30,4 +30,9 @@ class AsteroidQuery(BaseModel):
     orbit_class: str | None = None
     dv_min: float | None = Field(None, ge=0)
     dv_max: float | None = Field(None, ge=0)
+    inclination_max: float | None = Field(None, ge=0, le=180)
+    tisserand_min: float | None = Field(None)
+    tisserand_max: float | None = Field(None)
+    diameter_min: float | None = Field(None, ge=0)
+    diameter_max: float | None = Field(None, ge=0)
     rank_max: int | None = Field(None, ge=1)

@@ -81,6 +81,11 @@ export interface Filters {
   orbit_class?: string;
   dv_min?: number;
   dv_max?: number;
+  inclination_max?: number;
+  tisserand_min?: number;
+  tisserand_max?: number;
+  diameter_min?: number;
+  diameter_max?: number;
   sort: string;
   order: 'asc' | 'desc';
   limit: number;

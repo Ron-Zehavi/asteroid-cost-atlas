@@ -114,12 +114,25 @@ body {
 /* Filters */
 .filter-bar {
   display: flex;
+  flex-wrap: wrap;
+  row-gap: 8px;
   gap: 8px;
   padding: 8px 16px;
   background: var(--surface);
   border-bottom: 1px solid var(--border);
   align-items: center;
 }
+.filter-toggle {
+  padding: 4px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 12px;
+}
+.filter-toggle:hover { color: var(--text); border-color: var(--accent); }
+.filter-toggle[aria-expanded="true"] { color: var(--accent); border-color: var(--accent); }
 .filter-bar select, .filter-bar input {
   padding: 4px 8px;
   background: var(--bg);
