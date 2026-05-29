@@ -1,5 +1,12 @@
 import type { Asteroid } from '../types/asteroid';
-import { extractionInventory, missionScenario } from '../utils/mining';
+import {
+  campaignProjection,
+  DEFAULT_MISSION_KG,
+  extractionInventory,
+  extractionLimitFraction,
+  missionScenario,
+} from '../utils/mining';
+import type { MissionScenario } from '../utils/mining';
 
 function fmt(n: number | null | undefined, d = 2): string {
   if (n == null || !isFinite(n)) return '—';
@@ -61,6 +68,19 @@ interface Props {
   isPinned?: boolean;
 }
 
+function topMetal(s: MissionScenario): string {
+  if (s.mix.length === 0) return '—';
+  const m = s.mix[0];
+  const cap = m.name.charAt(0).toUpperCase() + m.name.slice(1);
+  return s.mix.length === 1 ? cap : `${cap} +${s.mix.length - 1}`;
+}
+
+const STOP_REASON_LABEL: Record<string, string> = {
+  inventory_exhausted: 'mineable inventory exhausted',
+  profit_negative: 'next mission unprofitable',
+  no_inventory: 'no PGM detected',
+};
+
 export function AsteroidDetail({ asteroid, onClose, onPin, isPinned }: Props) {
   if (!asteroid) return null;
   const a = asteroid;
@@ -68,6 +88,8 @@ export function AsteroidDetail({ asteroid, onClose, onPin, isPinned }: Props) {
   const s1 = missionScenario(a, 1_000);
   const s10 = missionScenario(a, 10_000);
   const s100 = missionScenario(a, 100_000);
+  const fMax = extractionLimitFraction(a);
+  const campaign = campaignProjection(a, DEFAULT_MISSION_KG);
 
   return (
     <div className="detail-drawer">
@@ -162,7 +184,7 @@ export function AsteroidDetail({ asteroid, onClose, onPin, isPinned }: Props) {
       </div>
 
       <div className="detail-section">
-        <h3>Mission Scenarios</h3>
+        <h3>Single-Mission Scenarios <span className="detail-subtitle">(greedy by $/kg)</span></h3>
         <table className="scenario-table">
           <thead>
             <tr>
@@ -174,13 +196,19 @@ export function AsteroidDetail({ asteroid, onClose, onPin, isPinned }: Props) {
           </thead>
           <tbody>
             <tr>
-              <td className="detail-label" title="Return payload mass per mission scenario. Refined material returned to Earth/cislunar orbit.">Payload</td>
+              <td className="detail-label" title="Returned payload (kg). Capped by mineable inventory after the extraction limit.">Payload</td>
               <td>{fmtKg(s1.payloadKg)}</td>
               <td>{fmtKg(s10.payloadKg)}</td>
               <td>{fmtKg(s100.payloadKg)}</td>
             </tr>
             <tr>
-              <td className="detail-label" title="Gross revenue (USD) from extracted specimen at spot prices. Weighted across 7 metals by composition concentrations.">Revenue</td>
+              <td className="detail-label" title="Highest-value metal picked first, then next-best until target met or inventory exhausted.">Top Metal</td>
+              <td>{topMetal(s1)}</td>
+              <td>{topMetal(s10)}</td>
+              <td>{topMetal(s100)}</td>
+            </tr>
+            <tr>
+              <td className="detail-label" title="Greedy-fill revenue at spot prices.">Revenue</td>
               <td>{fmtUsd(s1.revenue)}</td>
               <td>{fmtUsd(s10.revenue)}</td>
               <td>{fmtUsd(s100.revenue)}</td>
@@ -202,11 +230,49 @@ export function AsteroidDetail({ asteroid, onClose, onPin, isPinned }: Props) {
       </div>
 
       <div className="detail-section">
-        <h3>Break-even</h3>
-        <Row label="Total" value={a.break_even_kg ? fmtKg(a.break_even_kg) : '—'}
-          tooltip="Minimum refined precious-metal mass required to cover fixed mission cost and transport under current scenario assumptions." />
+        <h3>Campaign Projection <span className="detail-subtitle">({(DEFAULT_MISSION_KG / 1_000).toFixed(0)} t per mission)</span></h3>
+        <Row label="Extraction Limit"
+          value={`${(fMax * 100).toFixed(1)}% of asteroid mass`}
+          tooltip="Max fraction of asteroid mass that can be mined before the rubble pile structurally fails. min(rotation-stability, 40% literature ceiling, 30% engineering ceiling)." />
+        <Row label="Mineable PGM"
+          value={fmtKg(campaign.totalAvailableKg)}
+          tooltip="Total precious-metal mass available after applying the extraction limit." />
+        <Row label="Missions Run"
+          value={String(campaign.missionsRun)}
+          tooltip="Greedy fixed-size missions, each picking the highest-$/kg metals still available. Stops when the next mission would be unprofitable OR inventory is exhausted." />
+        <Row label="Stopped Because"
+          value={STOP_REASON_LABEL[campaign.stoppedReason]}
+          tooltip="Why the campaign halted. Inventory exhausted = the extraction limit was the binding cap. Next mission unprofitable = greedy economics ran out before the physics did." />
+        <Row label="Total Revenue" value={fmtUsd(campaign.totalRevenue)} />
+        <Row label="Total Cost" value={fmtUsd(campaign.totalCost)} />
+        <Row label="Total Profit" value={fmtUsd(campaign.totalProfit)} />
+      </div>
+
+      <div className="detail-section">
+        <h3>Break-even <span className="detail-subtitle">(pipeline, old model)</span></h3>
+        <Row label="Per-mission" value={a.break_even_kg ? fmtKg(a.break_even_kg) : '—'}
+          tooltip="Pipeline-computed minimum refined PGM mass to cover a single mission. Uses the old uniform-value model; the Campaign Projection above is the more honest answer." />
         <Row label="Viable" value={a.is_viable ? 'Yes' : 'No'}
-          tooltip="Indicates whether estimated extractable precious metals exceed break-even threshold under current mission assumptions (609 of 1,521,843 objects)." />
+          tooltip="Pipeline-computed viability flag from the old model. Retained for backward compatibility." />
+      </div>
+
+      <div className="detail-section detail-disclaimer">
+        <h3>How to read these numbers</h3>
+        <p>
+          Upper-bound estimate. Even with the greedy + extraction-limit + optimal-stopping
+          corrections, the model still ignores:
+        </p>
+        <ul>
+          <li>Market saturation — returning 100s of tonnes of Rh would collapse its price.</li>
+          <li>R&amp;D, capex amortisation, regulation, engineering uncertainty.</li>
+          <li>Composition uncertainty — PGM concentrations are meteorite-analog priors.</li>
+          <li>Real extraction yields and in-space refining losses beyond the $5K/kg overhead.</li>
+        </ul>
+        <p>
+          The extraction-limit cap is the dominant correction. Without it the same model
+          would claim ~12 missions and ~$102B profit for a body like 1996 FG3 — requiring
+          processing ~90% of the asteroid mass and physically dismantling the target.
+        </p>
       </div>
     </div>
   );

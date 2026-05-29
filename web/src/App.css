@@ -393,6 +393,24 @@ body {
 .scenario-table td:first-child { text-align: left; }
 .profit-positive { color: var(--viable); font-weight: 600; }
 .profit-negative { color: var(--danger); }
+.detail-subtitle {
+  color: var(--text-dim);
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  margin-left: 6px;
+}
+.detail-disclaimer {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px 14px;
+  background: rgba(79, 195, 247, 0.04);
+}
+.detail-disclaimer h3 { color: var(--text-dim); border: none; padding: 0; }
+.detail-disclaimer p { font-size: 11px; color: var(--text-dim); margin: 0 0 8px; line-height: 1.5; }
+.detail-disclaimer ul { font-size: 11px; color: var(--text-dim); margin: 0 0 8px 18px; line-height: 1.5; }
+.detail-disclaimer li { margin-bottom: 3px; }
 
 /* Table profit columns */
 .col-profit { font-size: 11px; }
