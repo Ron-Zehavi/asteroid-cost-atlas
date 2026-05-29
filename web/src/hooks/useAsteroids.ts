@@ -93,12 +93,8 @@ export function useAsteroids() {
   }, []);
 
   const clearFilters = useCallback(() => {
-    setFilters({
-      sort: DEFAULT_FILTERS.sort,
-      order: DEFAULT_FILTERS.order,
-      limit: DEFAULT_FILTERS.limit,
-      offset: 0,
-    });
+    // Reset to defaults: dv_max returns to 3, URL becomes clean (defaults are omitted).
+    setFilters({ ...DEFAULT_FILTERS, offset: 0 });
   }, []);
 
   const nextPage = useCallback(() => {

@@ -10,10 +10,20 @@ describe('parseFiltersFromSearch', () => {
     expect(parseFiltersFromSearch('?asteroid=20175706')).toEqual(DEFAULT_FILTERS);
   });
 
-  test('does NOT inherit dv_max=3 default when any filter param is present', () => {
+  test('always inherits non-overridden defaults (dv_max=3 stays unless URL clears it)', () => {
     const f = parseFiltersFromSearch('?neo=Y');
     expect(f.neo).toBe('Y');
+    expect(f.dv_max).toBe(3);
+  });
+
+  test('empty value for a numeric param means "explicitly cleared"', () => {
+    const f = parseFiltersFromSearch('?dv_max=');
     expect(f.dv_max).toBeUndefined();
+  });
+
+  test('zero is a valid numeric value (not treated as cleared)', () => {
+    const f = parseFiltersFromSearch('?inclination_max=0');
+    expect(f.inclination_max).toBe(0);
   });
 
   test('parses composition_class, neo, orbit_class', () => {
@@ -47,9 +57,9 @@ describe('parseFiltersFromSearch', () => {
     expect(f.dv_max).toBeUndefined();
   });
 
-  test('ignores non-finite numeric params', () => {
+  test('ignores non-finite numeric params (falls back to default)', () => {
     const f = parseFiltersFromSearch('?dv_max=NotANumber&neo=Y');
-    expect(f.dv_max).toBeUndefined();
+    expect(f.dv_max).toBe(3); // default kept since URL value was unparseable
     expect(f.neo).toBe('Y');
   });
 
@@ -84,22 +94,44 @@ describe('applyFiltersToSearch', () => {
     expect(params.get('neo')).toBe('Y');
   });
 
-  test('removes stale filter params when filters change', () => {
+  test('clear-filters (state = DEFAULT_FILTERS) yields an empty URL', () => {
     const existing = new URLSearchParams('neo=Y&dv_max=5');
-    // Simulate "Clear filters": only structural fields (sort/order/limit/offset).
-    const params = applyFiltersToSearch(existing, {
+    const params = applyFiltersToSearch(existing, { ...DEFAULT_FILTERS });
+    expect(params.toString()).toBe('');
+  });
+
+  test('OMITS dv_max from URL when state equals the default (3)', () => {
+    const params = applyFiltersToSearch(new URLSearchParams(), { ...DEFAULT_FILTERS });
+    expect(params.has('dv_max')).toBe(false);
+  });
+
+  test('writes dv_max=5 when user picks a non-default value', () => {
+    const params = applyFiltersToSearch(new URLSearchParams(), {
+      ...DEFAULT_FILTERS, dv_max: 5,
+    });
+    expect(params.get('dv_max')).toBe('5');
+  });
+
+  test('uses empty value as explicit-clear sentinel (dv_max=undefined → ?dv_max=)', () => {
+    const params = applyFiltersToSearch(new URLSearchParams(), {
+      sort: DEFAULT_FILTERS.sort,
+      order: DEFAULT_FILTERS.order,
+      limit: 200,
+      offset: 0,
+      // intentionally no dv_max → user cleared the filter
+    });
+    expect(params.get('dv_max')).toBe('');
+  });
+
+  test('explicit-clear sentinel round-trips back to undefined', () => {
+    const params = applyFiltersToSearch(new URLSearchParams(), {
       sort: DEFAULT_FILTERS.sort,
       order: DEFAULT_FILTERS.order,
       limit: 200,
       offset: 0,
     });
-    expect(params.has('neo')).toBe(false);
-    expect(params.has('dv_max')).toBe(false);
-  });
-
-  test('writes dv_max even at default value (3) when present in state', () => {
-    const params = applyFiltersToSearch(new URLSearchParams(), { ...DEFAULT_FILTERS });
-    expect(params.get('dv_max')).toBe('3');
+    const parsed = parseFiltersFromSearch('?' + params.toString());
+    expect(parsed.dv_max).toBeUndefined();
   });
 
   test('writes is_viable as "viable=true" / "viable=false"', () => {

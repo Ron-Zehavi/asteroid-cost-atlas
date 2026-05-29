@@ -41,13 +41,16 @@ export default function App() {
   const [dayOffset, setDayOffset] = useState(todayOffset);
   const [speed, setSpeed] = useState<PlaySpeed>(10);
   const [showAbout, setShowAbout] = useState(false);
+  const isMethodologyHash = (h: string) => h === '#methodology' || h.startsWith('#m-');
   const [showMethodology, setShowMethodology] = useState(() =>
-    typeof window !== 'undefined' && window.location.hash === '#methodology',
+    typeof window !== 'undefined' && isMethodologyHash(window.location.hash),
   );
   const [panelWidth, setPanelWidth] = useState(40); // table panel width %
 
   useEffect(() => {
-    const onHash = () => setShowMethodology(window.location.hash === '#methodology');
+    // Keep methodology open while the hash is `#methodology` or any TOC anchor (`#m-…`).
+    // Otherwise TOC clicks would close the view via the hashchange.
+    const onHash = () => setShowMethodology(isMethodologyHash(window.location.hash));
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -57,7 +60,9 @@ export default function App() {
     setShowMethodology(true);
   }, []);
   const closeMethodology = useCallback(() => {
-    if (window.location.hash === '#methodology') {
+    // Clear both `#methodology` and any in-doc TOC anchor (#m-…) so the URL is clean.
+    const h = window.location.hash;
+    if (h === '#methodology' || h.startsWith('#m-')) {
       history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     setShowMethodology(false);
