@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AsteroidTable } from './components/AsteroidTable';
 import { AsteroidDetail } from './components/AsteroidDetail';
 import { FilterBar } from './components/FilterBar';
@@ -11,22 +11,62 @@ import { useAsteroids } from './hooks/useAsteroids';
 import { useStats } from './hooks/useStats';
 import { computeHohmannTransfer, estimateLaunchWindows } from './utils/transfer';
 
+const MethodologyView = lazy(() =>
+  import('./components/MethodologyView').then((m) => ({ default: m.MethodologyView })),
+);
+
 import './App.css';
 
 type ColorBy = 'composition' | 'delta_v' | 'viable' | 'confidence';
 
 export default function App() {
   const {
-    asteroids, total, filters, loading,
+    asteroids, total, filters, loading, hasLoadedOnce,
     selected, setSelected,
-    updateFilters, nextPage, prevPage, toggleSort,
+    updateFilters, clearFilters, nextPage, prevPage, toggleSort,
+    notice, dismissNotice,
   } = useAsteroids();
+
+  // Show scene loading overlay on initial load; debounce subsequent refetches
+  // by 300ms so brief flickers from filter typing don't show a spinner.
+  const [showSceneLoading, setShowSceneLoading] = useState(false);
+  useEffect(() => {
+    if (!loading) { setShowSceneLoading(false); return; }
+    if (!hasLoadedOnce) { setShowSceneLoading(true); return; }
+    const t = setTimeout(() => setShowSceneLoading(true), 300);
+    return () => clearTimeout(t);
+  }, [loading, hasLoadedOnce]);
   const stats = useStats(filters);
   const [colorBy, setColorBy] = useState<ColorBy>('composition');
   const [dayOffset, setDayOffset] = useState(todayOffset);
   const [speed, setSpeed] = useState<PlaySpeed>(10);
   const [showAbout, setShowAbout] = useState(false);
+  const isMethodologyHash = (h: string) => h === '#methodology' || h.startsWith('#m-');
+  const [showMethodology, setShowMethodology] = useState(() =>
+    typeof window !== 'undefined' && isMethodologyHash(window.location.hash),
+  );
   const [panelWidth, setPanelWidth] = useState(40); // table panel width %
+
+  useEffect(() => {
+    // Keep methodology open while the hash is `#methodology` or any TOC anchor (`#m-…`).
+    // Otherwise TOC clicks would close the view via the hashchange.
+    const onHash = () => setShowMethodology(isMethodologyHash(window.location.hash));
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+
+  const openMethodology = useCallback(() => {
+    window.location.hash = '#methodology';
+    setShowMethodology(true);
+  }, []);
+  const closeMethodology = useCallback(() => {
+    // Clear both `#methodology` and any in-doc TOC anchor (#m-…) so the URL is clean.
+    const h = window.location.hash;
+    if (h === '#methodology' || h.startsWith('#m-')) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    setShowMethodology(false);
+  }, []);
   const dragging = useRef(false);
   const mainRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +97,11 @@ export default function App() {
     <div className="app">
       <header className="app-header">
         <h1>Asteroid Atlas</h1>
+        {stats?.last_updated && (
+          <span className="data-freshness" title="Date of the latest atlas snapshot">
+            Data {stats.last_updated}
+          </span>
+        )}
         <SearchBox onSelect={setSelected} />
         <select
           className="color-select"
@@ -68,11 +113,19 @@ export default function App() {
           <option value="viable">Color: Viability</option>
           <option value="confidence">Color: Confidence</option>
         </select>
+        <button className="about-btn" onClick={openMethodology}>Methodology</button>
         <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
       </header>
 
+      {notice && (
+        <div className="notice-banner" role="alert">
+          <span>{notice}</span>
+          <button onClick={dismissNotice} aria-label="Dismiss">×</button>
+        </div>
+      )}
+
       <StatsCards stats={stats} />
-      <FilterBar filters={filters} onUpdate={updateFilters} />
+      <FilterBar filters={filters} onUpdate={updateFilters} onClear={clearFilters} />
 
       <div className="main-content" ref={mainRef}>
         <div className={`table-panel${selected ? ' table-panel--detail' : ''}`} style={{ width: `${panelWidth}%` }}>
@@ -137,6 +190,12 @@ export default function App() {
             onDayOffsetChange={setDayOffset}
             onSelectAsteroid={setSelected}
           />
+          {showSceneLoading && (
+            <div className="scene-loading" role="status" aria-live="polite">
+              <div className="scene-loading-spinner" />
+              <span>Loading asteroids…</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -151,7 +210,11 @@ export default function App() {
       </div>
 
       {showAbout && <AboutModal onClose={() => setShowAbout(false)} />}
-      {/* <SpacecraftPreview /> */}
+      {showMethodology && (
+        <Suspense fallback={<div className="methodology-view"><p className="methodology-loading">Loading methodology…</p></div>}>
+          <MethodologyView onClose={closeMethodology} />
+        </Suspense>
+      )}
     </div>
   );
 }

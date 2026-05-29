@@ -59,6 +59,7 @@ export interface Stats {
   max_delta_v: number;
   median_delta_v: number;
   avg_delta_v: number;
+  last_updated: string | null;
 }
 
 export interface HistogramBin {
@@ -80,6 +81,11 @@ export interface Filters {
   orbit_class?: string;
   dv_min?: number;
   dv_max?: number;
+  inclination_max?: number;
+  tisserand_min?: number;
+  tisserand_max?: number;
+  diameter_min?: number;
+  diameter_max?: number;
   sort: string;
   order: 'asc' | 'desc';
   limit: number;

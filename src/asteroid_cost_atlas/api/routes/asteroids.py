@@ -58,6 +58,21 @@ def list_asteroids(
     if q.dv_max is not None:
         clauses.append("delta_v_km_s <= ?")
         params.append(q.dv_max)
+    if q.inclination_max is not None:
+        clauses.append("inclination_deg <= ?")
+        params.append(q.inclination_max)
+    if q.tisserand_min is not None:
+        clauses.append("tisserand_jupiter >= ?")
+        params.append(q.tisserand_min)
+    if q.tisserand_max is not None:
+        clauses.append("tisserand_jupiter <= ?")
+        params.append(q.tisserand_max)
+    if q.diameter_min is not None:
+        clauses.append("diameter_estimated_km >= ?")
+        params.append(q.diameter_min)
+    if q.diameter_max is not None:
+        clauses.append("diameter_estimated_km <= ?")
+        params.append(q.diameter_max)
     if q.rank_max is not None:
         clauses.append("economic_priority_rank <= ?")
         params.append(q.rank_max)

@@ -31,6 +31,11 @@ export async function getAsteroids(filters: Filters): Promise<AsteroidListRespon
   if (filters.orbit_class) params.set('orbit_class', filters.orbit_class);
   if (filters.dv_min !== undefined) params.set('dv_min', String(filters.dv_min));
   if (filters.dv_max !== undefined) params.set('dv_max', String(filters.dv_max));
+  if (filters.inclination_max !== undefined) params.set('inclination_max', String(filters.inclination_max));
+  if (filters.tisserand_min !== undefined) params.set('tisserand_min', String(filters.tisserand_min));
+  if (filters.tisserand_max !== undefined) params.set('tisserand_max', String(filters.tisserand_max));
+  if (filters.diameter_min !== undefined) params.set('diameter_min', String(filters.diameter_min));
+  if (filters.diameter_max !== undefined) params.set('diameter_max', String(filters.diameter_max));
   return fetchJson<AsteroidListResponse>(`${BASE}/asteroids?${params}`);
 }
 

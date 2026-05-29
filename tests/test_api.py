@@ -185,3 +185,121 @@ class TestSearch:
     def test_search_requires_query(self, client: TestClient) -> None:
         resp = client.get("/api/search")
         assert resp.status_code == 422
+
+
+class TestAdvancedFilters:
+    """Filter params added in the UX-improvements PR."""
+
+    def test_inclination_max_excludes_pallas(self, client: TestClient) -> None:
+        # Pallas has i=34.8°; the other four are <14°
+        resp = client.get("/api/asteroids?inclination_max=15")
+        assert resp.status_code == 200
+        names = {r["name"] for r in resp.json()["data"]}
+        assert "2 Pallas" not in names
+        assert len(names) == 4
+
+    def test_tisserand_min(self, client: TestClient) -> None:
+        # T_J values: Pallas 3.12, Ceres 3.31, Vesta 3.41, Astraea 3.33, Juno 3.28
+        resp = client.get("/api/asteroids?tisserand_min=3.30")
+        assert resp.status_code == 200
+        rows = resp.json()["data"]
+        assert all(r["tisserand_jupiter"] >= 3.30 for r in rows)
+        assert {r["name"] for r in rows} == {"1 Ceres", "4 Vesta", "5 Astraea"}
+
+    def test_tisserand_max(self, client: TestClient) -> None:
+        resp = client.get("/api/asteroids?tisserand_max=3.20")
+        assert resp.status_code == 200
+        assert {r["name"] for r in resp.json()["data"]} == {"2 Pallas"}
+
+    def test_diameter_min(self, client: TestClient) -> None:
+        # Diameters: Ceres 939, Pallas 513, Vesta 523, Juno 247, Astraea 119
+        resp = client.get("/api/asteroids?diameter_min=500")
+        assert resp.status_code == 200
+        assert {r["name"] for r in resp.json()["data"]} == {
+            "1 Ceres", "2 Pallas", "4 Vesta",
+        }
+
+    def test_diameter_range(self, client: TestClient) -> None:
+        resp = client.get("/api/asteroids?diameter_min=150&diameter_max=600")
+        assert resp.status_code == 200
+        assert {r["name"] for r in resp.json()["data"]} == {
+            "2 Pallas", "3 Juno", "4 Vesta",
+        }
+
+    def test_invalid_inclination_rejected(self, client: TestClient) -> None:
+        resp = client.get("/api/asteroids?inclination_max=999")
+        assert resp.status_code == 422
+
+
+class TestStatsFreshness:
+    """`last_updated` field added in the UX-improvements PR."""
+
+    def test_last_updated_parsed_from_atlas_filename(
+        self, client: TestClient, _atlas_parquet: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # Point the resolver at the tmp dir containing atlas_20260402.parquet
+        from asteroid_cost_atlas.api.routes import stats as stats_module
+
+        monkeypatch.setattr(
+            stats_module, "_resolve_processed_dir", lambda: _atlas_parquet.parent,
+        )
+        resp = client.get("/api/stats")
+        assert resp.status_code == 200
+        assert resp.json()["last_updated"] == "2026-04-02"
+
+    def test_last_updated_null_when_no_atlas(
+        self, client: TestClient, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from asteroid_cost_atlas.api.routes import stats as stats_module
+
+        empty_dir = tmp_path / "empty"
+        empty_dir.mkdir()
+        monkeypatch.setattr(
+            stats_module, "_resolve_processed_dir", lambda: empty_dir,
+        )
+        resp = client.get("/api/stats")
+        assert resp.status_code == 200
+        assert resp.json()["last_updated"] is None
+
+
+class TestDocs:
+    """/api/docs/methodology added in the UX-improvements PR."""
+
+    def test_methodology_returns_markdown(
+        self, client: TestClient, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from asteroid_cost_atlas.api.routes import docs as docs_module
+
+        (tmp_path / "METHODOLOGY.md").write_text("# Hello\n\nbody.", encoding="utf-8")
+        monkeypatch.setattr(docs_module, "_docs_root", lambda: tmp_path)
+        resp = client.get("/api/docs/methodology")
+        assert resp.status_code == 200
+        assert resp.text.startswith("# Hello")
+
+    def test_methodology_404_when_missing(
+        self, client: TestClient, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        from asteroid_cost_atlas.api.routes import docs as docs_module
+
+        monkeypatch.setattr(docs_module, "_docs_root", lambda: tmp_path)
+        resp = client.get("/api/docs/methodology")
+        assert resp.status_code == 404
+
+    def test_methodology_emits_cache_control(
+        self, client: TestClient, tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Edge/browser caching for a doc that changes only on deploy."""
+        from asteroid_cost_atlas.api.routes import docs as docs_module
+
+        (tmp_path / "METHODOLOGY.md").write_text("# Hi", encoding="utf-8")
+        monkeypatch.setattr(docs_module, "_docs_root", lambda: tmp_path)
+        resp = client.get("/api/docs/methodology")
+        assert resp.status_code == 200
+        cc = resp.headers.get("cache-control", "")
+        assert "max-age" in cc
+        assert "public" in cc
