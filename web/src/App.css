@@ -87,7 +87,8 @@ body {
   display: flex;
   justify-content: space-between;
 }
-.search-results li:hover { background: var(--border); }
+.search-results li:hover,
+.search-results li.active { background: var(--border); }
 .search-meta { color: var(--text-dim); font-size: 12px; }
 
 /* Stats */
