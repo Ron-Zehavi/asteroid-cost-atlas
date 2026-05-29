@@ -17,7 +17,7 @@ const MethodologyView = lazy(() =>
 
 import './App.css';
 
-type ColorBy = 'composition' | 'delta_v' | 'viable' | 'confidence';
+type ColorBy = 'composition' | 'delta_v' | 'viable' | 'confidence' | 'campaign_profit';
 
 export default function App() {
   const {
@@ -110,8 +110,9 @@ export default function App() {
         >
           <option value="composition">Color: Composition</option>
           <option value="delta_v">Color: Delta-v</option>
-          <option value="viable">Color: Viability</option>
+          <option value="viable">Color: Viability (greedy + extraction-limit)</option>
           <option value="confidence">Color: Confidence</option>
+          <option value="campaign_profit">Color: Campaign Profit</option>
         </select>
         <button className="about-btn" onClick={openMethodology}>Methodology</button>
         <button className="about-btn" onClick={() => setShowAbout(true)}>About</button>
