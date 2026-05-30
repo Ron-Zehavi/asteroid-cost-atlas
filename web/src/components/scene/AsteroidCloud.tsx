@@ -5,6 +5,7 @@ import * as THREE from 'three';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
 import { DISTANCE_SCALE, OBJECT_SCALE } from '../../utils/sceneConstants';
+import { campaignTint, viabilityTint } from '../../utils/missionColor';
 
 type CompositionClass = 'C' | 'S' | 'M' | 'V' | 'U';
 
@@ -45,7 +46,7 @@ function classOf(a: Asteroid): CompositionClass {
 
 interface Props {
   asteroids: Asteroid[];
-  colorBy: 'composition' | 'delta_v' | 'viable' | 'confidence';
+  colorBy: 'composition' | 'delta_v' | 'viable' | 'confidence' | 'campaign_profit';
   dayOffset?: number;
   onClickIndex?: (index: number) => void;
   /** Asteroid spkid to highlight (e.g. selected target during arrival window). */
@@ -101,13 +102,14 @@ export function AsteroidCloud({
       const g = Math.round((0.5 + (1 - t) * 0.5) * 255);
       return `rgb(${r},${g},80)`;
     }
-    if (colorBy === 'viable') return a.is_viable ? '#44dd66' : '#888899';
+    if (colorBy === 'viable') return viabilityTint(a);
     if (colorBy === 'confidence') {
       const conf = a.composition_confidence ?? 0;
       if (conf < 0.3) return '#dd5533';
       if (conf < 0.7) return '#ddcc33';
       return '#33dd55';
     }
+    if (colorBy === 'campaign_profit') return campaignTint(a);
     return CLASS_TINT[classOf(a)];
   }, [colorBy]);
 

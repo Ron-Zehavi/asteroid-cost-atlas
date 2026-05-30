@@ -27,7 +27,7 @@ import { focusTargetToOverride } from '../../utils/focusState';
 interface Props {
   asteroids: Asteroid[];
   selected: Asteroid | null;
-  colorBy: 'composition' | 'delta_v' | 'viable' | 'confidence';
+  colorBy: 'composition' | 'delta_v' | 'viable' | 'confidence' | 'campaign_profit';
   dayOffset: number;
   speed: number; // days per second (0 = paused)
   onDayOffsetChange: (d: number) => void;

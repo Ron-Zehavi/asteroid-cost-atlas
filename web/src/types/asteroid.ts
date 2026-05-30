@@ -42,6 +42,20 @@ export interface Asteroid {
   economic_priority_rank: number | null;
   total_extractable_precious_kg: number | null;
   total_precious_value_usd: number | null;
+  platinum_ppm?: number | null;
+  palladium_ppm?: number | null;
+  rhodium_ppm?: number | null;
+  iridium_ppm?: number | null;
+  osmium_ppm?: number | null;
+  ruthenium_ppm?: number | null;
+  gold_ppm?: number | null;
+  extractable_platinum_kg?: number | null;
+  extractable_palladium_kg?: number | null;
+  extractable_rhodium_kg?: number | null;
+  extractable_iridium_kg?: number | null;
+  extractable_osmium_kg?: number | null;
+  extractable_ruthenium_kg?: number | null;
+  extractable_gold_kg?: number | null;
 }
 
 export interface AsteroidListResponse {
