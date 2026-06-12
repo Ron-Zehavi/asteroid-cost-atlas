@@ -19,10 +19,18 @@ import {
 import { OrbitZones } from './OrbitZones';
 import { TransferArc } from './TransferArc';
 import { FocusRing } from './FocusRing';
+import { SpotlightAsteroid } from './SpotlightAsteroid';
 import type { Asteroid } from '../../types/asteroid';
 import { keplerToCartesian, propagateMeanAnomaly } from '../../utils/kepler';
-import { DISTANCE_SCALE } from '../../utils/sceneConstants';
+import { DISTANCE_SCALE, OBJECT_SCALE, SPOTLIGHT_FLIGHT_SECONDS } from '../../utils/sceneConstants';
 import { focusTargetToOverride } from '../../utils/focusState';
+import {
+  KM_PER_AU,
+  easeInOutCubic,
+  spotlightArrivalDistance,
+  spotlightFlight,
+  spotlightRockRadius,
+} from '../../utils/spotlight';
 
 interface Props {
   asteroids: Asteroid[];
@@ -151,36 +159,91 @@ function FocusTracker({ focusOverrideRef, controls, dayOffset, selected }: {
       return;
     }
 
-    // null = no continuous tracking. CameraFocus already does the one-time
-    // jump when a new asteroid is selected; after that the user is in control.
+    // null = follow the selected asteroid (focusState spec: "Click asteroid →
+    // follow asteroid"). Move the camera by the same delta as the pivot so
+    // zoom/rotate stay free; without this, a playing timeline carries the
+    // rock out of frame seconds after the spotlight flight lands.
+    if (override === null && selected) {
+      if (spotlightFlight.active) return; // flight owns the camera
+      const pos = asteroidPosition(selected, dayOffset);
+      if (!pos) return;
+      const ctrl = controls.current;
+      const cam = ctrl.object as THREE.PerspectiveCamera;
+      followDelta.copy(pos).sub(ctrl.target);
+      cam.position.add(followDelta);
+      ctrl.target.copy(pos);
+      ctrl.update();
+    }
   });
   return null;
 }
 
+const followDelta = new THREE.Vector3();
+
 const lastSelectedId = { current: null as number | null };
 
-function CameraFocus({ target, selectedId, controls }: {
-  target: THREE.Vector3 | null;
+/** Cinematic flight to a newly selected asteroid: eased position/pivot
+ *  interpolation with a gentle lift over the ecliptic. The destination is
+ *  recomputed each frame so a moving target (timeline playing) stays framed.
+ *  Any user drag/wheel aborts the flight and hands the camera back. */
+function CameraFlight({ getTarget, selectedId, controls }: {
+  getTarget: () => THREE.Vector3 | null;
   selectedId: number | null;
   controls: React.RefObject<OrbitControlsImpl | null>;
 }) {
   const { camera } = useThree();
-  const lastId = lastSelectedId;
+  const flight = useRef<{ elapsed: number; fromPos: THREE.Vector3; fromTarget: THREE.Vector3 } | null>(null);
 
-  // Jump camera on new asteroid selection. Only fires when selectedId actually
-  // changes — never overwrites 'static' on subsequent re-renders.
+  // Start a flight on new asteroid selection. Only fires when selectedId
+  // actually changes — never overwrites 'static' on subsequent re-renders.
   useEffect(() => {
-    if (selectedId == null || selectedId === lastId.current) return;
-    if (!target || !controls.current) return;
-    lastId.current = selectedId;
+    if (selectedId == null || selectedId === lastSelectedId.current) return;
+    if (!getTarget() || !controls.current) return;
+    lastSelectedId.current = selectedId;
     setOverride(null);
-    const ctrl = controls.current;
-    const dist = Math.max(0.005, target.length() * 0.05);
-    const offset = new THREE.Vector3(0, dist * 0.6, dist).normalize().multiplyScalar(dist);
-    camera.position.copy(target.clone().add(offset));
-    ctrl.target.copy(target);
-    ctrl.update();
+    flight.current = {
+      elapsed: 0,
+      fromPos: camera.position.clone(),
+      fromTarget: controls.current.target.clone(),
+    };
+    spotlightFlight.active = true;
+    spotlightFlight.progress = 0;
   }, [selectedId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useFrame((_, delta) => {
+    const f = flight.current;
+    if (!f || !controls.current) return;
+
+    const endFlight = () => {
+      flight.current = null;
+      spotlightFlight.active = false;
+      spotlightFlight.progress = 1;
+    };
+
+    // User grabbed the camera mid-flight → they win, immediately.
+    if (focusOverrideShared.current === 'static') { endFlight(); return; }
+    const target = getTarget();
+    if (!target) { endFlight(); return; }
+
+    f.elapsed += delta;
+    const t = Math.min(f.elapsed / SPOTLIGHT_FLIGHT_SECONDS, 1);
+    const p = easeInOutCubic(t);
+
+    const dist = spotlightArrivalDistance(target.length());
+    const offset = new THREE.Vector3(0, dist * 0.55, dist).normalize().multiplyScalar(dist);
+    const destPos = target.clone().add(offset);
+
+    camera.position.lerpVectors(f.fromPos, destPos, p);
+    // Lift the midpoint above the ecliptic so the path arcs instead of slicing
+    // through the asteroid cloud.
+    const lift = f.fromPos.distanceTo(destPos) * 0.15 * Math.sin(Math.PI * p);
+    camera.position.setY(camera.position.y + lift);
+    controls.current.target.lerpVectors(f.fromTarget, target, p);
+    controls.current.update();
+
+    spotlightFlight.progress = p;
+    if (t >= 1) endFlight();
+  });
 
   return null;
 }
@@ -340,6 +403,15 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
     return asteroidPosition(selected, dayOffset);
   }, [selected, dayOffset]);
 
+  // Featured-rock radius: fraction of the flight's arrival framing, floored by
+  // the cloud's own (OBJECT_SCALE-exaggerated) radius for very large bodies.
+  const rockRadius = useMemo(() => {
+    if (!selected || !selectedPos) return 0;
+    const diamKm = selected.diameter_estimated_km ?? 0.02;
+    const cloudRadius = ((diamKm / KM_PER_AU) / 2) * OBJECT_SCALE;
+    return spotlightRockRadius(spotlightArrivalDistance(selectedPos.length()), cloudRadius);
+  }, [selected, selectedPos]);
+
   return (
     <>
       <ambientLight intensity={0.08} />
@@ -377,7 +449,11 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
       />
 
       {selected && selectedPos && (
-        <Html position={[selectedPos.x, selectedPos.y + 0.005, selectedPos.z]} center style={{ pointerEvents: 'none' }}>
+        <Html
+          position={[selectedPos.x, selectedPos.y + Math.max(0.005, rockRadius * 1.6), selectedPos.z]}
+          center
+          style={{ pointerEvents: 'none' }}
+        >
           <div style={{
             color: '#4fc3f7',
             fontSize: '11px',
@@ -388,6 +464,14 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
             {selected.name}
           </div>
         </Html>
+      )}
+      {selected && selectedPos && rockRadius > 0 && (
+        <SpotlightAsteroid
+          asteroid={selected}
+          position={selectedPos}
+          radius={rockRadius}
+          tint={highlightTint}
+        />
       )}
       {selected && <OrbitLine asteroid={selected} />}
       {selected && <TransferArc asteroid={selected} dayOffset={dayOffset} onClickLabel={(pos) => {
@@ -401,7 +485,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
         cam.position.copy(pos.clone().add(offset));
         ctrl.update();
       }} />}
-      <CameraFocus target={selectedPos} selectedId={selected?.spkid ?? null} controls={controlsRef} />
+      <CameraFlight getTarget={getSelectedAsteroidPos} selectedId={selected?.spkid ?? null} controls={controlsRef} />
       <FocusTracker focusOverrideRef={focusOverrideRef} controls={controlsRef} dayOffset={dayOffset} selected={selected} />
       <InitialCameraFit />
 
@@ -415,7 +499,7 @@ function Scene({ asteroids, selected, colorBy, dayOffset, speed, onDayOffsetChan
       {selected && (
         <FocusRing
           getPosition={getSelectedAsteroidPos}
-          radius={0.002}
+          radius={Math.max(0.002, rockRadius * 1.8)}
           color="#ffffff"
         />
       )}

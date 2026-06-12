@@ -6,6 +6,7 @@ import { SearchBox } from './components/SearchBox';
 import { StatsCards } from './components/StatsCards';
 import { AboutModal } from './components/AboutModal';
 import { TimelineSlider, todayOffset, type PlaySpeed } from './components/TimelineSlider';
+import { SpotlightStory } from './components/SpotlightStory';
 import { SolarSystem } from './components/scene/SolarSystem';
 import { useAsteroids } from './hooks/useAsteroids';
 import { useStats } from './hooks/useStats';
@@ -191,6 +192,7 @@ export default function App() {
             onDayOffsetChange={setDayOffset}
             onSelectAsteroid={setSelected}
           />
+          {selected && <SpotlightStory key={selected.spkid} asteroid={selected} dayOffset={dayOffset} />}
           {showSceneLoading && (
             <div className="scene-loading" role="status" aria-live="polite">
               <div className="scene-loading-spinner" />
