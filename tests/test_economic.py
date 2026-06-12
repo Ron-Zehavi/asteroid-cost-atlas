@@ -7,11 +7,14 @@ import pytest
 
 from asteroid_cost_atlas.scoring.economic import (
     FALCON_LEO_COST,
+    MISSION_CAPACITY_KG,
     MISSION_MIN_COST,
+    OPERATIONAL_LIMIT,
     VE,
     accessibility_score,
     add_economic_score,
     estimated_mass_kg,
+    extraction_limit_fraction,
     mission_cost_per_kg,
 )
 
@@ -51,6 +54,91 @@ class TestAccessibilityScore:
 
     def test_zero_returns_nan(self) -> None:
         assert math.isnan(accessibility_score(0.0))
+
+
+class TestExtractionLimitFraction:
+    def test_missing_inputs_fall_back_to_operational_limit(self) -> None:
+        assert extraction_limit_fraction(float("nan"), 1.0, 1e-4) == OPERATIONAL_LIMIT
+        assert extraction_limit_fraction(5.0, 0.0, 1e-4) == OPERATIONAL_LIMIT
+        assert extraction_limit_fraction(5.0, 1.0, 0.0) == OPERATIONAL_LIMIT
+
+    def test_slow_rotator_capped_at_operational_limit(self) -> None:
+        # Slow spin → f_rotation ≈ 1 → operational cap binds
+        assert extraction_limit_fraction(100.0, 1.0, 1e-3) == OPERATIONAL_LIMIT
+
+    def test_fast_rotator_below_operational_limit(self) -> None:
+        # 1996 FG3: 3.5942 h, 1.196 km, g = 3.34e-4 → f_rotation ≈ 0.578,
+        # still above the 30% operational cap
+        f = extraction_limit_fraction(3.5942, 1.196, 3.343535904878626e-4)
+        assert f == OPERATIONAL_LIMIT
+
+    def test_spin_barrier_rotator_yields_small_fraction(self) -> None:
+        # Near the spin barrier the centrifugal term eats the budget
+        f = extraction_limit_fraction(2.2, 1.0, 2.7e-4)
+        assert 0.0 <= f < OPERATIONAL_LIMIT
+
+
+class TestCampaignModel:
+    """Greedy fixed-capacity campaign — must match the web model
+    (docs/VALUATION_RECONCILIATION.md, the 127x discrepancy fix)."""
+
+    def _fg3_df(self) -> pd.DataFrame:
+        # 175706 (1996 FG3), values straight from the atlas
+        return pd.DataFrame(
+            {
+                "spkid": [20175706],
+                "name": ["175706 (1996 FG3)"],
+                "diameter_estimated_km": [1.196],
+                "delta_v_km_s": [1.1530703732014953],
+                "composition_class": ["C"],
+                "resource_value_usd_per_kg": [38.0],
+                "specimen_value_per_kg": [90936.61],
+                "rotation_hours": [3.5942],
+                "surface_gravity_m_s2": [3.343535904878626e-4],
+                "platinum_ppm": [1.0197],
+                "palladium_ppm": [0.632],
+                "rhodium_ppm": [0.1459],
+                "iridium_ppm": [0.5133],
+                "osmium_ppm": [0.546],
+                "ruthenium_ppm": [0.7548],
+                "gold_ppm": [0.1661],
+            }
+        )
+
+    def test_fg3_campaign_matches_web_model(self) -> None:
+        result = add_economic_score(self._fg3_df())
+        # Web model: 3 full 100 t missions + 1 profitable partial → 4
+        assert result.loc[0, "missions_supported"] == 4
+        assert result.loc[0, "campaign_profit_usd"] == pytest.approx(3.055e10, rel=0.01)
+
+    def test_fg3_first_mission_is_flagship(self) -> None:
+        result = add_economic_score(self._fg3_df())
+        # First 100 t mission greedily takes Rh/Ir/Au first → ~$20.35B profit
+        assert result.loc[0, "mission_profit_usd"] == pytest.approx(2.035e10, rel=0.01)
+        assert (
+            result.loc[0, "mission_profit_usd"]
+            <= result.loc[0, "campaign_profit_usd"]
+        )
+
+    def test_campaign_profit_not_floor_division_residue(self) -> None:
+        # The old model returned ~0.2% of revenue by construction; the greedy
+        # campaign should keep a healthy share of its revenue as profit.
+        result = add_economic_score(self._fg3_df())
+        rev = result.loc[0, "campaign_revenue_usd"]
+        profit = result.loc[0, "campaign_profit_usd"]
+        assert profit / rev > 0.5
+
+    def test_mission_payload_capped_by_capacity(self) -> None:
+        result = add_economic_score(self._fg3_df())
+        # Revenue of the first mission can't exceed capacity × best price
+        assert result.loc[0, "mission_revenue_usd"] <= MISSION_CAPACITY_KG * 299_000
+
+    def test_unprofitable_rock_has_no_campaign(self) -> None:
+        df = self._fg3_df()
+        df.loc[0, "delta_v_km_s"] = 12.0  # transport kills every mission
+        result = add_economic_score(df)
+        assert result.loc[0, "missions_supported"] == 0
+        assert math.isnan(result.loc[0, "campaign_profit_usd"])
 
 
 class TestAddEconomicScore:
